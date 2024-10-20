@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RuffConfigService">
+    <option name="projectRuffExecutablePath" value="C:\Projects\pi-remote\.venv\Scripts\ruff.exe" />
+    <option name="projectRuffLspExecutablePath" value="C:\Projects\pi-remote\.venv\Scripts\ruff-lsp.exe" />
+    <option name="ruffConfigPath" value="C:\Projects\pi-remote\.ruff.toml" />
+    <option name="runRuffOnSave" value="true" />
+    <option name="useRuffFormat" value="true" />
+    <option name="useRuffLsp" value="true" />
+    <option name="useRuffServer" value="true" />
+  </component>
+</project>
