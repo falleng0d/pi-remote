@@ -1,61 +1,69 @@
-import asyncio
 import logging
-import os
+from concurrent import futures
 
-import flask
-from werkzeug import exceptions
+import grpc
 
-import log
-import json_response
-import socket_api
+import input_pb2_grpc
+from config_service import ConfigService
+from input_service import InputService
+from server import InputMethodsService
 
-host = os.environ.get('HOST', '0.0.0.0')
-port = int(os.environ.get('PORT', 5000))
-debug = 'DEBUG' in os.environ
-use_reloader = os.environ.get('USE_RELOADER', '0') == '1'
+root_logger = logging.getLogger()
+root_logger.propagate = True
 
-root_logger = log.create_root_logger(flask.logging.default_handler)
-if debug:
-    root_logger.setLevel(logging.DEBUG)
-else:
-    root_logger.setLevel(logging.INFO)
-    # Socket.io logs are too chatty at INFO level.
-    logging.getLogger('socketio').setLevel(logging.ERROR)
-    logging.getLogger('engineio').setLevel(logging.ERROR)
+# log to stdout if INFO or higher and stderr if WARNING or higher
+stdout_logger = logging.StreamHandler()
+stdout_logger.addFilter(lambda record: record.levelno >= logging.WARNING)
+stdout_logger.setLevel(logging.INFO)
 
-logger = logging.getLogger(__name__)
-logger.info('Starting app')
+stderr_logger = logging.StreamHandler()
+stderr_logger.setLevel(0)
+stderr_logger.addFilter(lambda record: record.levelno < logging.WARNING)
 
-app = flask.Flask(__name__)
-app.config.update()
-settings_file = os.environ.get('SETTINGS_FILE', '../settings.cfg')
-cwd = os.path.dirname(os.path.realpath(__file__))
-settings_file = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                             settings_file)
-app.config.from_pyfile(settings_file)
+formatter = logging.Formatter('[%(asctime)s][%(levelname)s][%(name)s]: %(message)s')
+stdout_logger.setFormatter(formatter)
+stderr_logger.setFormatter(formatter)
 
-
-@app.errorhandler(Exception)
-def handle_error(e):
-    logger.exception(e)
-    code = 500
-    if isinstance(e, exceptions.HTTPException):
-        code = e.code
-    return json_response.error(e), code
-
-
-async def main():
-    socketio = socket_api.socketio
-    socketio.init_app(app)
-    socketio.run(
-        app,
-        host=host,
-        port=port,
-        debug=debug,
-        use_reloader=use_reloader,
-        log_output=debug,
-    )
-
+root_logger.addHandler(stdout_logger)
+root_logger.addHandler(stderr_logger)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    thread_pool = futures.ThreadPoolExecutor(max_workers=10)
+    server = grpc.server(thread_pool)
+
+    input_service = InputService()
+
+    config_service = ConfigService(
+        input_service=input_service,
+        logger=logging.getLogger(__name__),
+    )
+    config_service.load()
+
+    if config_service.is_debug:
+        root_logger.setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+    else:
+        root_logger.setLevel(logging.INFO)
+        logger.setLevel(logging.INFO)
+
+    input_pb2_grpc.add_InputMethodsServicer_to_server(
+        InputMethodsService(
+            config_service=config_service,
+            logger=logging.getLogger(__name__),
+        ),
+        server,
+    )
+
+    host = config_service.host
+    if config_service.host == '0.0.0.0':
+        host = '[::]'
+
+    address = f'{host}:{config_service.port}'
+    logger.info(f'Starting server on {address}')
+
+    server.add_insecure_port(address)
+    server.start()
+    server.wait_for_termination()

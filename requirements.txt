@@ -5,3 +5,5 @@ python-engineio
 python-socketio==5.11.4
 eventlet==0.37.0
 Werkzeug
+grpcio==1.68.1
+easyconfig==0.3.2

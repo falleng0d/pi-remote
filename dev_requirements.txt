@@ -2,3 +2,4 @@ pylint
 ruff
 ruff-lsp
 yapf
+grpcio-tools
