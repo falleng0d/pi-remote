@@ -33,7 +33,7 @@ class PyPreferences:
             key: value for key, value in d.__dict__.items() if not key.startswith('_')
         }
 
-    def _save(self):
+    def save(self):
         with open(self.filepath, 'w') as file:
             for key, value in self.data.items():
                 file.write(f'{key} = {repr(value)}\n')
@@ -43,7 +43,7 @@ class PyPreferences:
 
     def set(self, key, value):
         self.data[key] = value
-        self._save()
+        self.save()
 
 
 class ConfigService:
@@ -56,6 +56,8 @@ class ConfigService:
     _key_press_interval = 33
     _host = '0.0.0.0'
     _port = 9036
+    _keyboard_path = '/dev/null'
+    _mouse_path = '/dev/null'
 
     _key_repeat_delay = 300  # 300ms (CONSTANT)
     _key_repeat_interval = 1000 // 30  # 15hz (CONSTANT)
@@ -64,6 +66,7 @@ class ConfigService:
         self._input_service = input_service
         self._prefs = PyPreferences('remotecontrol.cfg')
         self._logger = logger
+        self._load()
 
     @property
     def cursor_speed(self):
@@ -97,7 +100,15 @@ class ConfigService:
     def is_debug(self):
         return self._is_debug
 
-    def load(self):
+    @property
+    def keyboard_path(self):
+        return self._keyboard_path
+
+    @property
+    def mouse_path(self):
+        return self._mouse_path
+
+    def _load(self):
         self._cursor_speed = self._prefs.get('cursor_speed', self._cursor_speed)
         self._cursor_acceleration = self._prefs.get(
             'cursor_acceleration', self._cursor_acceleration
@@ -108,10 +119,26 @@ class ConfigService:
         self._host = self._prefs.get('host', self._host)
         self._port = self._prefs.get('port', self._port)
         self._is_debug = self._prefs.get('debug', self._is_debug)
+        self._keyboard_path = self._prefs.get('keyboard_path', self._keyboard_path)
+        self._mouse_path = self._prefs.get('mouse_path', self._mouse_path)
 
         self._initialized = True
 
         self.log_preferences()
+        
+        self._save()
+
+    def _save(self):
+        self._prefs.set('cursor_speed', self._cursor_speed)
+        self._prefs.set('cursor_acceleration', self._cursor_acceleration)
+        self._prefs.set('key_press_interval', self._key_press_interval)
+        self._prefs.set('host', self._host)
+        self._prefs.set('port', self._port)
+        self._prefs.set('debug', self._is_debug)
+        self._prefs.set('keyboard_path', self._keyboard_path)
+        self._prefs.set('mouse_path', self._mouse_path)
+
+        self._prefs.save()
 
     def log_preferences(self):
         self._logger.info('Host: %s', self._host)
@@ -120,6 +147,8 @@ class ConfigService:
         self._logger.info('Cursor speed: %s', self._cursor_speed)
         self._logger.info('Cursor acceleration: %s', self._cursor_acceleration)
         self._logger.info('Key press interval: %s', self._key_press_interval)
+        self._logger.info('Keyboard path: %s', self._keyboard_path)
+        self._logger.info('Mouse path: %s', self._mouse_path)
 
     def set_cursor_speed(self, speed: float):
         if not self._initialized:
@@ -171,3 +200,17 @@ class ConfigService:
         self._prefs.set('debug', debug)
         self._is_debug = debug
         self._input_service.is_debug = debug
+
+    def set_keyboard_path(self, path: str):
+        if not self._initialized:
+            raise Exception('Preferences not initialized!')
+
+        self._prefs.set('keyboard_path', path)
+        self._keyboard_path = path
+
+    def set_mouse_path(self, path: str):
+        if not self._initialized:
+            raise Exception('Preferences not initialized!')
+
+        self._prefs.set('mouse_path', path)
+        self._mouse_path = path
