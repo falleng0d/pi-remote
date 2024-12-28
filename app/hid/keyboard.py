@@ -1,7 +1,8 @@
 from hid import write as hid_write
+from hid.keycodes import Keystroke
 
 
-def send_keystroke(keyboard_path, keystroke):
+def send_keystroke(keyboard_path: str, keystroke: Keystroke):
     buf = [0] * 8
     buf[0] = keystroke.modifier
     buf[2] = keystroke.keycode
@@ -18,11 +19,11 @@ def send_keystroke(keyboard_path, keystroke):
         release_keys(keyboard_path)
 
 
-def release_keys(keyboard_path):
+def release_keys(keyboard_path: str):
     hid_write.write_to_hid_interface(keyboard_path, [0] * 8)
 
 
-def send_keystrokes(keyboard_path, keystrokes):
+def send_keystrokes(keyboard_path: str, keystrokes: list[Keystroke]):
     """Sends multiple keystrokes to the HID interface, one after the other.
 
     Args:
