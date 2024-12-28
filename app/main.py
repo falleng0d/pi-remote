@@ -40,7 +40,6 @@ if __name__ == '__main__':
         input_service=input_service,
         logger=logging.getLogger(__name__),
     )
-    config_service.load()
 
     if config_service.is_debug:
         root_logger.setLevel(logging.DEBUG)
