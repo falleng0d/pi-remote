@@ -16,10 +16,8 @@ export USB_KEYBOARD_FUNCTIONS_DIR="functions/hid.keyboard"
 readonly USB_KEYBOARD_FUNCTIONS_DIR
 export USB_MOUSE_FUNCTIONS_DIR="functions/hid.mouse"
 readonly USB_MOUSE_FUNCTIONS_DIR
-export USB_MASS_STORAGE_NAME="mass_storage.0"
-readonly USB_MASS_STORAGE_NAME
-export USB_MASS_STORAGE_FUNCTIONS_DIR="functions/${USB_MASS_STORAGE_NAME}"
-readonly USB_MASS_STORAGE_FUNCTIONS_DIR
+export USB_CONSUMER_FUNCTIONS_DIR="functions/hid.consumer"
+readonly USB_CONSUMER_FUNCTIONS_DIR
 
 export USB_CONFIG_INDEX=1
 readonly USB_CONFIG_INDEX
@@ -34,6 +32,7 @@ function usb_gadget_activate {
   ls /sys/class/udc > "${USB_DEVICE_PATH}/UDC"
   chmod 777 /dev/hidg0
   chmod 777 /dev/hidg1
+  chmod 777 /dev/hidg2
 }
 export -f usb_gadget_activate
 

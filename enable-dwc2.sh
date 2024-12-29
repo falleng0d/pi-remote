@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Exit script on first failure.
+set -e
+
+# Exit on unset variable.
+set -u
+
 # Enable the dwc2 kernel driver, which we need to emulate USB devices with USB
 # OTG.
 readonly MODULES_PATH='/etc/modules'
