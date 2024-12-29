@@ -1,24 +1,52 @@
 # Internal key representation
 
+from dataclasses import dataclass
 from enum import Enum
+
+import input_pb2
 
 
 class KeyState(Enum):
-    UP = 1
-    DOWN = 2
+    UP = 0
+    DOWN = 1
 
 
 class KeyActionType(Enum):
-    UP = 1
-    DOWN = 2
-    PRESS = 3
+    UP = 0
+    DOWN = 1
+    PRESS = 2
 
 
 class ButtonActionType(Enum):
-    UP = 1
-    DOWN = 2
-    PRESS = 3
-    MOVE = 4
+    UP = 0
+    DOWN = 1
+    PRESS = 2
+    MOVE = 3
+
+
+@dataclass(frozen=True)
+class KeyOptions:
+    no_repeat: bool
+    disable_unwanted_modifiers: bool
+
+    @classmethod
+    def from_pb(cls, options: input_pb2.KeyOptions):
+        return cls(
+            no_repeat=options.no_repeat,
+            disable_unwanted_modifiers=options.no_modifiers,
+        )
+
+    def to_pb(self):
+        options = input_pb2.KeyOptions(
+            no_repeat=self.no_repeat if self.no_repeat is not None else False,
+            no_modifiers=self.disable_unwanted_modifiers
+            if self.disable_unwanted_modifiers is not None
+            else False,
+        )
+        return options
+
+    def __str__(self):
+        return f'KeyOptions(no_repeat: {self.no_repeat}, disable_unwanted_modifiers: {self.disable_unwanted_modifiers})'
 
 
 KEY_0 = 0
@@ -143,3 +171,18 @@ KEY_MEDIA_STOP = 118
 KEY_BROWSER_BACK = 119
 KEY_BROWSER_FORWARD = 120
 KEY_BROWSER_REFRESH = 121
+
+modifier_keys = {
+    KEY_LSHIFT,
+    KEY_RSHIFT,
+    KEY_LCONTROL,
+    KEY_RCONTROL,
+    KEY_LMENU,
+    KEY_RMENU,
+    KEY_LSUPER,
+    KEY_RSUPER,
+}
+
+
+def is_modifier_key(key_code: int) -> bool:
+    return key_code in modifier_keys

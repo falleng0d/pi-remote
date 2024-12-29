@@ -7,23 +7,42 @@ import input_pb2
 import input_pb2_grpc
 from config_service import ConfigService
 from input_service import InputService
+from key import KeyActionType
+from key import KeyOptions
 
 
 class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
     _logger: logging.Logger
-    config: ConfigService
-    # keyboard_input_service: KeyboardInputService
+    config_svc: ConfigService
+    input_svc: InputService
+    thread_pool: futures.ThreadPoolExecutor
 
-    def __init__(self, config_service: ConfigService, logger: logging.Logger):
+    def __init__(
+        self,
+        config_service: ConfigService,
+        input_service: InputService,
+        logger: logging.Logger,
+    ):
         self._logger = logger
-        self.config = config_service
+        self.config_svc = config_service
+        self.input_svc = input_service
+        self.thread_pool = futures.ThreadPoolExecutor(max_workers=10)
 
     def PressKey(
         self,
         request: input_pb2.Key,
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
-        raise NotImplementedError()
+        key_id = request.id
+        request_type = KeyActionType(request.type)
+        options = (
+            KeyOptions.from_pb(request.options) if request.HasField('options') else None
+        )
+
+        print(f'Pressing key {key_id} with action {request_type.name}')
+        self.input_svc.press_key(key_id, request_type, options)
+
+        return input_pb2.Response(message='Ok')
 
     def PressHotkey(
         self,
@@ -55,8 +74,8 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         context: grpc.ServicerContext,
     ) -> input_pb2.Config:
         config = input_pb2.Config(
-            cursor_speed=self.config.cursor_speed,
-            cursor_acceleration=self.config.cursor_acceleration,
+            cursor_speed=self.config_svc.cursor_speed,
+            cursor_acceleration=self.config_svc.cursor_acceleration,
         )
         return config
 
@@ -65,8 +84,8 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         request: input_pb2.Config,
         context: grpc.ServicerContext,
     ) -> input_pb2.Config:
-        self.config.set_cursor_speed(request.cursor_speed)
-        self.config.set_cursor_acceleration(request.cursor_acceleration)
+        self.config_svc.set_cursor_speed(request.cursor_speed)
+        self.config_svc.set_cursor_acceleration(request.cursor_acceleration)
 
         return self.GetConfig(input_pb2.Empty(), context)
 
@@ -76,7 +95,7 @@ def serve() -> None:
     input_service = InputService()
     config_service = ConfigService(input_service=input_service)
     config_service.load()  # Load configuration from file
-    
+
     input_pb2_grpc.add_InputMethodsServicer_to_server(
         InputMethodsService(
             config_service=config_service,
@@ -84,11 +103,11 @@ def serve() -> None:
         ),
         server,
     )
-    
+
     address = f'{config_service.host}:{config_service.port}'
     server.add_insecure_port(address)
     server.start()
-    
+
     logging.info(f'Server started on {address}')
     server.wait_for_termination()
 

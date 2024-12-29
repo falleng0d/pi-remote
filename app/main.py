@@ -5,6 +5,7 @@ import grpc
 
 import input_pb2_grpc
 from config_service import ConfigService
+from input_service import HidKeyboardService
 from input_service import InputService
 from server import InputMethodsService
 
@@ -34,12 +35,17 @@ if __name__ == '__main__':
     thread_pool = futures.ThreadPoolExecutor(max_workers=10)
     server = grpc.server(thread_pool)
 
-    input_service = InputService()
-
-    config_service = ConfigService(
-        input_service=input_service,
-        logger=logging.getLogger(__name__),
+    hid_service = HidKeyboardService(
+        keyboard_path='/dev/null', logger=logging.getLogger(__name__)
     )
+
+    input_service = InputService(
+        hid_service=hid_service, logger=logging.getLogger(__name__)
+    )
+
+    config_service = ConfigService(logger=logging.getLogger(__name__))
+
+    hid_service.keyboard_path = config_service.keyboard_path
 
     if config_service.is_debug:
         root_logger.setLevel(logging.DEBUG)
@@ -51,6 +57,7 @@ if __name__ == '__main__':
     input_pb2_grpc.add_InputMethodsServicer_to_server(
         InputMethodsService(
             config_service=config_service,
+            input_service=input_service,
             logger=logging.getLogger(__name__),
         ),
         server,
@@ -65,4 +72,12 @@ if __name__ == '__main__':
 
     server.add_insecure_port(address)
     server.start()
-    server.wait_for_termination()
+
+    try:
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        logger.info('Shutting down server')
+        hid_service.unpress_all_keys()
+        server.stop(0)
+        thread_pool.shutdown()
+        logger.info('Server stopped')

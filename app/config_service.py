@@ -2,8 +2,6 @@ import logging
 import types
 from pathlib import Path
 
-from app.input_service import InputService
-
 
 class PyPreferences:
     filepath: Path
@@ -47,7 +45,6 @@ class PyPreferences:
 
 
 class ConfigService:
-    _input_service: InputService
     _logger: logging.Logger
     _initialized = False
     _is_debug = False
@@ -62,8 +59,7 @@ class ConfigService:
     _key_repeat_delay = 300  # 300ms (CONSTANT)
     _key_repeat_interval = 1000 // 30  # 15hz (CONSTANT)
 
-    def __init__(self, input_service: InputService, logger: logging.Logger):
-        self._input_service = input_service
+    def __init__(self, logger: logging.Logger):
         self._prefs = PyPreferences('remotecontrol.cfg')
         self._logger = logger
         self._load()
@@ -125,7 +121,7 @@ class ConfigService:
         self._initialized = True
 
         self.log_preferences()
-        
+
         self._save()
 
     def _save(self):
@@ -199,7 +195,6 @@ class ConfigService:
 
         self._prefs.set('debug', debug)
         self._is_debug = debug
-        self._input_service.is_debug = debug
 
     def set_keyboard_path(self, path: str):
         if not self._initialized:
