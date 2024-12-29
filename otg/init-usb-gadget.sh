@@ -156,28 +156,20 @@ cp "$D" "${USB_MOUSE_FUNCTIONS_DIR}/report_desc"
 mkdir -p "$USB_CONSUMER_FUNCTIONS_DIR"
 echo 0 > "${USB_CONSUMER_FUNCTIONS_DIR}/protocol" # No protocol
 echo 0 > "${USB_CONSUMER_FUNCTIONS_DIR}/subclass" # No subclass
-echo 7 > "${USB_CONSUMER_FUNCTIONS_DIR}/report_length"
+echo 2 > "${USB_CONSUMER_FUNCTIONS_DIR}/report_length"
 # Write the report descriptor
 D=$(mktemp)
 {
-echo -ne \\x05\\x0C       # Usage Page (Consumer)
+echo -ne \\x05\\x0C       # Usage Page (Consumer) (P.123)
 echo -ne \\x09\\x01       # Usage (Consumer Control)
 echo -ne \\xA1\\x01       # Collection (Application)
-# echo -ne \\x05\\x0C       #   Usage Page (Consumer)
-# echo -ne \\x85\\x01       #   Report ID (1)
-echo -ne \\x75\\x08       #   Report Size (1)
-echo -ne \\x95\\x08       #   Report Count (8)
+echo -ne \\x75\\x10       #   Report Size (16)
+echo -ne \\x95\\x01       #   Report Count (1)
+echo -ne \\x19\\x00       #   Usage Minimum (0)
+echo -ne \\x2A\\xFF\\x03  #   Usage Maximum (1023)
 echo -ne \\x15\\x00       #   Logical Minimum (0)
-echo -ne \\x25\\x01       #   Logical Maximum (1)
-echo -ne \\x09\\xCD       #     Usage (Play/Pause)
-echo -ne \\x09\\xB5       #     Usage (Scan Next Track)
-echo -ne \\x09\\xB6       #     Usage (Scan Previous Track)
-echo -ne \\x09\\xB7       #     Usage (Stop)
-echo -ne \\x09\\xB8       #     Usage (Eject)
-echo -ne \\x09\\xE2       #     Usage (Mute)
-echo -ne \\x09\\xE9       #     Usage (Volume Increment)
-echo -ne \\x09\\xEA       #     Usage (Volume Decrement)
-echo -ne \\x81\\x02       #   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+echo -ne \\x26\\xFF\\x03  #   Logical Maximum (1023)
+echo -ne \\x81\\x00       #   Input (Data,Var,Abs)
 echo -ne \\xC0            # End Collection
 } >> "$D"
 cp "$D" "${USB_CONSUMER_FUNCTIONS_DIR}/report_desc"
