@@ -6,11 +6,12 @@ from typing import Iterable
 from config_service import ConfigService
 from hid import keycodes
 from hid.keycodes import modifier_keycodes
+from key import Key
 from key import KeyActionType
 from key import KeyOptions
-from key import is_media_key
-from key import is_modifier_key
-from key_to_keycode import key_to_keycode
+from key_utils import is_media_key
+from key_utils import is_modifier_key
+from key_utils import key_to_keycode
 
 
 def _write_to_hid_handle(hid_handle: BinaryIO, buffer: Iterable[int]):
@@ -117,11 +118,7 @@ class HidKeyboardService:
         return keyCode in self._pressed_keys[2:]
 
     def send_key_state(self, keyCode: int, action: KeyActionType):
-        if action == KeyActionType.DOWN and not self.is_key_pressed(keyCode):
-            self._set_key_state(keyCode, True)
-        elif action == KeyActionType.UP and self.is_key_pressed(keyCode):
-            self._set_key_state(keyCode, False)
-
+        self._set_key_state(keyCode, True if action == KeyActionType.DOWN else False)
         self._send_key_hid_state()
 
     def send_key_press(self, keyCode: int, interval: int = 30):
@@ -130,10 +127,7 @@ class HidKeyboardService:
         self.send_key_state(keyCode, KeyActionType.UP)
 
     def send_media_key_state(self, keyCode: int, action: KeyActionType):
-        if action == KeyActionType.DOWN:
-            self._send_media_hid_state(keyCode)
-        else:
-            self._send_media_hid_state(0)
+        self._send_media_hid_state(keyCode if action == KeyActionType.DOWN else 0)
 
     def send_media_key_press(self, keyCode: int, interval: int = 30):
         self._send_media_hid_state(keyCode)
@@ -144,10 +138,9 @@ class HidKeyboardService:
         if not self.is_modifier(modifier):
             raise ValueError(f'Key {modifier} is not a modifier key')
 
-        if action == KeyActionType.DOWN:
-            self._set_modifier_state(modifier, True)
-        else:
-            self._set_modifier_state(modifier, False)
+        self._set_modifier_state(
+            modifier, True if action == KeyActionType.DOWN else False
+        )
 
         self._send_key_hid_state()
 
@@ -206,20 +199,14 @@ class InputService:
         else:
             self._kb_service.send_media_key_state(key_code, action_type)
 
-    def press_key(self, key_id: int, action_type: KeyActionType, options: KeyOptions):
-        key_code = key_to_keycode(key_id)
-        if is_modifier_key(key_id):
-            self._logger.info(
-                f'Pressing MODIFIER {key_id}->{key_code} {action_type.name} {options}'
-            )
+    def press_key(self, key: Key, action_type: KeyActionType, options: KeyOptions):
+        key_code = key_to_keycode(key)
+        self._logger.info(
+            f'Pressing {action_type.name} {key.name}({key_code}) {options}'
+        )
+        if is_modifier_key(key):
             self._kb_service.send_modifier_state(key_code, action_type)
-        elif is_media_key(key_id):
-            self._logger.info(
-                f'Pressing MEDIA KEY {key_id}->{key_code} {action_type.name} {options}'
-            )
+        elif is_media_key(key):
             self._press_media_key(key_code, action_type)
         else:
-            self._logger.info(
-                f'Pressing KEY {key_id}->{key_code} {action_type.name} {options}'
-            )
             self._press_key(key_code, action_type, options)

@@ -7,6 +7,7 @@ import input_pb2
 import input_pb2_grpc
 from config_service import ConfigService
 from input_service import InputService
+from key import Key
 from key import KeyActionType
 from key import KeyOptions
 
@@ -33,14 +34,14 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         request: input_pb2.Key,
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
-        key_id = request.id
+        key = Key(request.id)
         request_type = KeyActionType(request.type)
         options = (
             KeyOptions.from_pb(request.options) if request.HasField('options') else None
         )
 
-        print(f'Pressing key {key_id} with action {request_type.name}')
-        self.input_svc.press_key(key_id, request_type, options)
+        print(f'Pressing key {key.name} with action {request_type.name}')
+        self.input_svc.press_key(key, request_type, options)
 
         return input_pb2.Response(message='Ok')
 
@@ -99,6 +100,7 @@ def serve() -> None:
     input_pb2_grpc.add_InputMethodsServicer_to_server(
         InputMethodsService(
             config_service=config_service,
+            input_service=input_service,
             logger=logging.getLogger(__name__),
         ),
         server,

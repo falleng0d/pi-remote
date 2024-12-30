@@ -7,6 +7,8 @@ import input_pb2_grpc
 from config_service import ConfigService
 from input_service import HidKeyboardService
 from input_service import InputService
+from key import Key
+from key_utils import key_to_keycode
 from server import InputMethodsService
 
 root_logger = logging.getLogger()
@@ -31,6 +33,9 @@ root_logger.addHandler(stderr_logger)
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
+
+    code = key_to_keycode(Key.KEY_MEDIA_PLAY_PAUSE)
+    print(f'Key code for media play/pause: {code}')
 
     thread_pool = futures.ThreadPoolExecutor(max_workers=10)
     server = grpc.server(thread_pool)
