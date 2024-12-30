@@ -5,8 +5,10 @@ import grpc
 
 import input_pb2
 import input_pb2_grpc
+from button import Button
 from config_service import ConfigService
 from input_service import InputService
+from key import ButtonActionType
 from key import Key
 from key import KeyActionType
 from key import KeyOptions
@@ -57,14 +59,21 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         request: input_pb2.MouseKey,
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
-        raise NotImplementedError()
+        button = Button(request.id)
+        request_type = ButtonActionType(request.type)
+
+        self.input_svc.press_mouse_key(button, request_type)
+
+        return input_pb2.Response(message='Ok')
 
     def MoveMouse(
         self,
         request: input_pb2.MouseMove,
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
-        raise NotImplementedError()
+        self.input_svc.move_mouse(request.x, request.y)
+
+        return input_pb2.Response(message='Ok')
 
     def Ping(self, _, __) -> input_pb2.Response:
         return input_pb2.Response(message='Ok')

@@ -2,6 +2,47 @@ import dataclasses
 import multiprocessing
 import threading
 import typing
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _t_initialize_pool():
+    global t_pool
+    t_pool = ThreadPoolExecutor(max_workers=10)
+
+
+def _initialize_pool():
+    global pool
+    pool = multiprocessing.Pool(processes=10)
+
+
+@dataclasses.dataclass
+class ThreadResult:
+    return_value: typing.Any = None
+    exception: Exception = None
+
+    def was_successful(self) -> bool:
+        return self.exception is None
+
+
+class ThreadWithResult(threading.Thread):
+    """Extension of Thread that keeps track of the thread's result.
+
+    This class is useful for executing a function in a thread and storing
+    the result (i.e., the return value and exception raised).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.result = ThreadResult()
+
+    def run(self):
+        """Method to be run in thread."""
+        try:
+            if self._target:
+                self.result.return_value = self._target(*self._args, **self._kwargs)
+        except Exception as e:
+            self.result.exception = e
+            raise
 
 
 @dataclasses.dataclass
@@ -72,19 +113,51 @@ def with_timeout(function, *, args=None, timeout_in_seconds):
         TimeoutError: If the execution time of the `function` exceeds the
             timeout `seconds`.
     """
-    process = ProcessWithResult(target=function, args=args or (), daemon=True)
-    process.start()
-    process.join(timeout=timeout_in_seconds)
-    if process.is_alive():
-        process.kill()
-        _wait_for_process_exit(process)
-    result = process.result()
-    if result is None:
-        raise TimeoutError(
-            f'Process failed to complete in {timeout_in_seconds} seconds')
-    if not result.was_successful():
-        raise result.exception
-    return result.return_value
+    if 'pool' not in globals():
+        _initialize_pool()
+
+    result = pool.apply_async(function, args=args or ())
+    try:
+        return result.get(timeout=timeout_in_seconds)
+    except multiprocessing.TimeoutError:
+        pass
+
+
+def with_timeout_t(function, *, args=None, timeout_in_seconds):
+    """Executes a function in a thread with a specified timeout.
+
+    Usage example:
+
+        with_timeout(save_contact,
+                     args=(first_name, last_name),
+                     timeout_in_seconds=0.5)
+
+    Args:
+        function: The function to be executed in a thread.
+        args: Optional `function` arguments as a tuple.
+        timeout_in_seconds: The execution time limit in seconds.
+
+    Returns:
+        The return value of the `function`.
+
+    Raises:
+        TimeoutError: If the execution time of the `function` exceeds the
+            timeout `seconds`.
+    """
+    if 't_pool' not in globals():
+        _t_initialize_pool()
+
+    future = t_pool.submit(function, *(args or ()))
+    try:
+        return future.result(timeout=timeout_in_seconds)
+    except TimeoutError:
+        raise TimeoutError('Function execution exceeded the timeout')
+
+
+def _wait_for_thread_exit(target_thread):
+    max_attempts = 3
+    for _ in range(max_attempts):
+        target_thread.join(timeout=0.1)
 
 
 def _wait_for_process_exit(target_process):
@@ -102,8 +175,5 @@ def background_thread(function, args=None):
         function: The function to be executed in a thread.
         args: Optional `function` arguments as a tuple.
     """
-    # Never wait or join a regular thread because it will block the SocketIO
-    # server:
-    # https://github.com/miguelgrinberg/Flask-SocketIO/issues/1264#issuecomment-620653614
     thread = threading.Thread(target=function, args=args or ())
     thread.start()

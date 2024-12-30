@@ -108,7 +108,7 @@ fi
 mkdir -p "$USB_MOUSE_FUNCTIONS_DIR"
 echo 0 > "${USB_MOUSE_FUNCTIONS_DIR}/protocol"
 echo 0 > "${USB_MOUSE_FUNCTIONS_DIR}/subclass"
-echo 7 > "${USB_MOUSE_FUNCTIONS_DIR}/report_length"
+echo 5 > "${USB_MOUSE_FUNCTIONS_DIR}/report_length"
 # Write the report descriptor
 D=$(mktemp)
 {
@@ -124,15 +124,15 @@ echo -ne \\x25\\x01      #   LOGICAL_MAXIMUM (1)
 echo -ne \\x95\\x08      #   REPORT_COUNT (8)
 echo -ne \\x75\\x01      #   REPORT_SIZE (1)
 echo -ne \\x81\\x02      #   INPUT (Data,Var,Abs)
-                         #   x,y absolute coordinates
+                         #   x,y relative coordinates
 echo -ne \\x05\\x01      #   USAGE_PAGE (Generic Desktop)
 echo -ne \\x09\\x30      #   USAGE (X)
 echo -ne \\x09\\x31      #   USAGE (Y)
-echo -ne \\x16\\x00\\x00 #   LOGICAL_MINIMUM (0)
-echo -ne \\x26\\xFF\\x7F #   LOGICAL_MAXIMUM (32767)
-echo -ne \\x75\\x10      #   REPORT_SIZE (16)
+echo -ne \\x15\\x81      #   LOGICAL_MINIMUM (-127)
+echo -ne \\x25\\x7F      #   LOGICAL_MAXIMUM (127)
+echo -ne \\x75\\x08      #   REPORT_SIZE (8)
 echo -ne \\x95\\x02      #   REPORT_COUNT (2)
-echo -ne \\x81\\x02      #   INPUT (Data,Var,Abs)
+echo -ne \\x81\\x06      #   INPUT (Data,Var,Abs)
                          #   vertical wheel
 echo -ne \\x09\\x38      #   USAGE (wheel)
 echo -ne \\x15\\x81      #   LOGICAL_MINIMUM (-127)

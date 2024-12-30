@@ -1,17 +1,25 @@
 import logging
+import multiprocessing
 import time
+from math import floor
 from typing import BinaryIO
 from typing import Iterable
 
+import execute
+from button import Button
+from button import button_to_hid
 from config_service import ConfigService
 from hid import keycodes
 from hid.keycodes import modifier_keycodes
+from key import ButtonActionType
 from key import Key
 from key import KeyActionType
 from key import KeyOptions
 from key_utils import is_media_key
 from key_utils import is_modifier_key
 from key_utils import key_to_keycode
+
+_hid_lock = multiprocessing.Lock()
 
 
 def _write_to_hid_handle(hid_handle: BinaryIO, buffer: Iterable[int]):
@@ -30,8 +38,9 @@ def _write_to_hid(hid_path: str, buffer: Iterable[int]):
         )
 
     try:
-        with open(hid_path, 'ab+') as hid_handle:
-            hid_handle.write(bytearray(buffer))
+        with _hid_lock:
+            with open(hid_path, 'ab+') as hid_handle:
+                hid_handle.write(bytearray(buffer))
     except BlockingIOError:
         logging.error(
             'Failed to write to HID interface: %s. Is USB cable connected?', hid_path
@@ -163,16 +172,142 @@ class HidKeyboardService:
         self._send_media_hid_state(0)
 
 
+def _send_mouse_event(mouse_path: str, buffer: Iterable[int]):
+    try:
+        _write_to_hid(mouse_path, buffer)
+    except (BrokenPipeError, ValueError):
+        logging.info(f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}')
+        raise RuntimeError(
+            f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}'
+        )
+
+
+def send_mouse_event(
+    mouse_path: str,
+    buttons: int,
+    relative_x: float,
+    relative_y: float,
+    vertical_wheel_delta: int,
+    horizontal_wheel_delta: int,
+) -> None:
+    """Send a mouse event to the target machine over USB HID.
+
+    :param mouse_path: A bitmask representing which mouse buttons are pressed.
+    :param buttons: A bitmask representing which mouse buttons are pressed.
+    :param relative_x: A value representing mouse's relative y delta.
+    :param relative_y: A value representing mouse's relative y delta.
+    :param vertical_wheel_delta: A -1, 0, or 1 representing movement of the mouse's
+        horizontal scroll wheel.
+    :param horizontal_wheel_delta:
+    :return: None
+    """
+    # pylint: disable=invalid-name
+    x, y = floor(relative_x * 10), floor(relative_y * 10)
+
+    buf = [0] * 5
+    buf[0] = buttons  # Byte 0 = Button 1 pressed
+    buf[1] = x & 0xFF
+    buf[2] = y & 0xFF
+    buf[3] = _translate_vertical_wheel_delta(vertical_wheel_delta) & 0xFF
+    buf[4] = horizontal_wheel_delta & 0xFF
+
+    # logging.info(f'Sending packet to mouse: {[f" {x:#04x}" for x in buf]}')
+
+    execute.with_timeout_t(
+        _write_to_hid,
+        args=(mouse_path, buf),
+        timeout_in_seconds=0.005,
+    )
+
+
+def _translate_vertical_wheel_delta(vertical_wheel_delta: int) -> int:
+    # a negative wheel delta number indicates upward scrolling but in HID, negative means
+    # downward scrolling.
+    return vertical_wheel_delta * -1
+
+
+class HidMouseService:
+    """Service for sending input events to the target machine over USB HID.
+
+    Keeps track of the state of the buttons and sends the appropriate events.
+    """
+
+    mouse_path: str
+    _logger: logging.Logger
+    _button_state: int
+
+    def __init__(self, mouse_path: str, logger: logging.Logger):
+        self.mouse_path = mouse_path
+        self._logger = logger
+        self._button_state = 0
+
+    def _write_to_hid(self):
+        # Send event with current button state but no movement/scroll
+        send_mouse_event(
+            self.mouse_path,
+            self._button_state,  # Current button state
+            0.0,  # No X movement
+            0.0,  # No Y movement
+            0,  # No vertical scroll
+            0,  # No horizontal scroll
+        )
+
+    def send_button_state(self, button: Button, action: ButtonActionType):
+        """Update button state and send the mouse event."""
+        button_mask = button_to_hid(button)
+
+        if action == ButtonActionType.DOWN:
+            self._button_state |= button_mask
+        elif action == ButtonActionType.UP:
+            self._button_state &= ~button_mask
+        elif action == ButtonActionType.MOVE:
+            self.send_button_press(button)
+
+        self._write_to_hid()
+
+    def send_button_press(self, button: Button):
+        """Send a mouse button press event."""
+        self.send_button_state(button, ButtonActionType.DOWN)
+        time.sleep(0.15)
+        self.send_button_state(button, ButtonActionType.UP)
+
+    def send_movement(self, delta_x: float, delta_y: float):
+        """Send a mouse movement event."""
+        send_mouse_event(
+            self.mouse_path,
+            self._button_state,  # Keep current button state
+            delta_x,
+            delta_y,
+            0,  # No vertical scroll
+            0,  # No horizontal scroll
+        )
+
+    def release_all_buttons(self):
+        """Release all mouse buttons."""
+        self._button_state = 0
+        self._write_to_hid()
+
+
 class InputService:
     """Service for orchestrating input events."""
 
     _logger: logging.Logger
     _kb_service: HidKeyboardService
+    _mouse_service: HidMouseService
     _config_service: ConfigService
 
-    def __init__(self, hid_service: HidKeyboardService, logger: logging.Logger):
-        self._logger = logger
+    def __init__(
+        self,
+        hid_service: HidKeyboardService,
+        mouse_service: HidMouseService,
+        config_service: ConfigService,
+        logger: logging.Logger,
+    ):
         self._kb_service = hid_service
+        self._mouse_service = mouse_service
+        self._config_service = config_service
+        self._logger = logger
+
         self._kb_service.unpress_all_keys()
 
     def _press_key(self, key_code: int, action_type: KeyActionType, _: KeyOptions):
@@ -210,3 +345,11 @@ class InputService:
             self._press_media_key(key_code, action_type)
         else:
             self._press_key(key_code, action_type, options)
+
+    def move_mouse(self, delta_x: float, delta_y: float):
+        self._logger.debug(f'Moving mouse by {delta_x}, {delta_y}')
+        self._mouse_service.send_movement(delta_x, delta_y)
+
+    def press_mouse_key(self, button: Button, action_type: ButtonActionType):
+        self._logger.debug(f'Pressing mouse {action_type.name} {button.name}')
+        self._mouse_service.send_button_state(button, action_type)

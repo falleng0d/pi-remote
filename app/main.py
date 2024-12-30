@@ -3,12 +3,12 @@ from concurrent import futures
 
 import grpc
 
+import execute
 import input_pb2_grpc
 from config_service import ConfigService
 from input_service import HidKeyboardService
+from input_service import HidMouseService
 from input_service import InputService
-from key import Key
-from key_utils import key_to_keycode
 from server import InputMethodsService
 
 root_logger = logging.getLogger()
@@ -30,15 +30,22 @@ stderr_logger.setFormatter(formatter)
 root_logger.addHandler(stdout_logger)
 root_logger.addHandler(stderr_logger)
 
+
+def _noop(*args, **kwargs):
+    pass
+
+
 if __name__ == '__main__':
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
 
-    code = key_to_keycode(Key.KEY_MEDIA_PLAY_PAUSE)
-    print(f'Key code for media play/pause: {code}')
+    # warm up processes
+    execute.with_timeout_t(_noop, timeout_in_seconds=1)
 
     thread_pool = futures.ThreadPoolExecutor(max_workers=10)
     server = grpc.server(thread_pool)
+
+    config_service = ConfigService(logger=logging.getLogger(__name__))
 
     hid_service = HidKeyboardService(
         keyboard_path='/dev/null',
@@ -46,14 +53,21 @@ if __name__ == '__main__':
         logger=logging.getLogger(__name__),
     )
 
-    input_service = InputService(
-        hid_service=hid_service, logger=logging.getLogger(__name__)
+    mouse_hid_service = HidMouseService(
+        mouse_path='/dev/null',
+        logger=logging.getLogger(__name__),
     )
 
-    config_service = ConfigService(logger=logging.getLogger(__name__))
+    input_service = InputService(
+        hid_service=hid_service,
+        mouse_service=mouse_hid_service,
+        config_service=config_service,
+        logger=logging.getLogger(__name__),
+    )
 
     hid_service.keyboard_path = config_service.keyboard_path
     hid_service.media_path = config_service.media_path
+    mouse_hid_service.mouse_path = config_service.mouse_path
 
     if config_service.is_debug:
         root_logger.setLevel(logging.DEBUG)
