@@ -161,6 +161,8 @@ KEY_OEM_4_SQUARE_BRACKET_OPEN = 108
 KEY_OEM_5_BACKSLASH = 109
 KEY_OEM_6_SQUARE_BRACKET_CLOSE = 110
 KEY_OEM_7_SINGLE_QUOTE = 111
+
+# Media keys
 KEY_MEDIA_PLAY_PAUSE = 112
 KEY_MEDIA_PREV_TRACK = 113
 KEY_MEDIA_NEXT_TRACK = 114
@@ -183,6 +185,22 @@ modifier_keys = {
     KEY_RSUPER,
 }
 
+media_keys = {
+    KEY_MEDIA_PLAY_PAUSE,
+    KEY_MEDIA_PREV_TRACK,
+    KEY_MEDIA_NEXT_TRACK,
+    KEY_VOLUME_MUTE,
+    KEY_VOLUME_UP,
+    KEY_VOLUME_DOWN,
+    KEY_MEDIA_STOP,
+    KEY_BROWSER_BACK,
+    KEY_BROWSER_FORWARD,
+    KEY_BROWSER_REFRESH,
+}
+
 
 def is_modifier_key(key_code: int) -> bool:
     return key_code in modifier_keys
+
+def is_media_key(key_code: int) -> bool:
+    return key_code in media_keys

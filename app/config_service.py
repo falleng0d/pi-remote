@@ -55,6 +55,7 @@ class ConfigService:
     _port = 9036
     _keyboard_path = '/dev/null'
     _mouse_path = '/dev/null'
+    _media_path = '/dev/null'
 
     _key_repeat_delay = 300  # 300ms (CONSTANT)
     _key_repeat_interval = 1000 // 30  # 15hz (CONSTANT)
@@ -104,6 +105,10 @@ class ConfigService:
     def mouse_path(self):
         return self._mouse_path
 
+    @property
+    def media_path(self):
+        return self._media_path
+
     def _load(self):
         self._cursor_speed = self._prefs.get('cursor_speed', self._cursor_speed)
         self._cursor_acceleration = self._prefs.get(
@@ -117,6 +122,7 @@ class ConfigService:
         self._is_debug = self._prefs.get('debug', self._is_debug)
         self._keyboard_path = self._prefs.get('keyboard_path', self._keyboard_path)
         self._mouse_path = self._prefs.get('mouse_path', self._mouse_path)
+        self._media_path = self._prefs.get('media_path', self._media_path)
 
         self._initialized = True
 
@@ -133,6 +139,7 @@ class ConfigService:
         self._prefs.set('debug', self._is_debug)
         self._prefs.set('keyboard_path', self._keyboard_path)
         self._prefs.set('mouse_path', self._mouse_path)
+        self._prefs.set('media_path', self._media_path)
 
         self._prefs.save()
 
@@ -145,6 +152,7 @@ class ConfigService:
         self._logger.info('Key press interval: %s', self._key_press_interval)
         self._logger.info('Keyboard path: %s', self._keyboard_path)
         self._logger.info('Mouse path: %s', self._mouse_path)
+        self._logger.info('Media path: %s', self._media_path)
 
     def set_cursor_speed(self, speed: float):
         if not self._initialized:
@@ -209,3 +217,10 @@ class ConfigService:
 
         self._prefs.set('mouse_path', path)
         self._mouse_path = path
+
+    def set_media_path(self, path: str):
+        if not self._initialized:
+            raise Exception('Preferences not initialized!')
+
+        self._prefs.set('media_path', path)
+        self._media_path = path

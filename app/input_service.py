@@ -1,24 +1,26 @@
 import logging
 import time
 from typing import BinaryIO
-from typing import List
+from typing import Iterable
 
 from config_service import ConfigService
-from hid.keycodes import modifier_keys
+from hid import keycodes
+from hid.keycodes import modifier_keycodes
 from key import KeyActionType
 from key import KeyOptions
+from key import is_media_key
 from key import is_modifier_key
 from key_to_keycode import key_to_keycode
 
 
-def _write_to_hid_handle(hid_handle: BinaryIO, buffer: list[int]):
+def _write_to_hid_handle(hid_handle: BinaryIO, buffer: Iterable[int]):
     try:
         hid_handle.write(bytearray(buffer))
     except BlockingIOError:
         logging.error('Failed to write to HID interface. Is USB cable connected?')
 
 
-def _write_to_hid(hid_path: str, buffer: list[int]):
+def _write_to_hid(hid_path: str, buffer: Iterable[int]):
     if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
         logging.debug(
             'writing to HID interface %s: %s',
@@ -35,25 +37,6 @@ def _write_to_hid(hid_path: str, buffer: list[int]):
         )
 
 
-def send_hid_state(hid_path: str, pressed_keys: List[int], modifiers_bitmask: int):
-    """Sends pressed keys and active modifiers to the HID interface.
-
-    - Up to 6 keys can be pressed at once.
-    - Modifiers are sent in the first byte of the buffer
-    - The second byte of the buffer is always 0.
-    - From the third byte onwards, the buffer contains the keycodes of the keys
-    """
-    if len(pressed_keys) > 6:
-        raise ValueError('Cannot send more than 6 keys at once')
-
-    buf = [0] * 8
-    buf[0] = modifiers_bitmask
-    for i, key_code in enumerate(pressed_keys):
-        buf[i + 2] = key_code
-
-    _write_to_hid(hid_path, buf)
-
-
 def release_all_keys(keyboard_path: str):
     _write_to_hid(keyboard_path, [0] * 8)
 
@@ -62,62 +45,111 @@ class HidKeyboardService:
     """Service for sending input events to the target machine over USB HID."""
 
     keyboard_path: str
+    media_path: str
     _logger: logging.Logger
-    _pressed_keys: List[int]
-    _active_modifiers: List[int]
+    _pressed_keys: tuple[int, ...]
+    _active_modifiers: dict[int, bool]
+    _modifiers_byte: int
 
-    def _send_hid_state(self):
-        send_hid_state(
-            self.keyboard_path, self._pressed_keys, self._get_modifiers_bitmap()
+    def _send_key_hid_state(self):
+        _write_to_hid(
+            self.keyboard_path, (self._modifiers_byte, 0, *self._pressed_keys)
         )
 
-    def __init__(self, keyboard_path: str, logger: logging.Logger):
-        self.keyboard_path = keyboard_path
-        self._logger = logger
-        self._pressed_keys = []
-        self._active_modifiers = []
+    def _send_media_hid_state(self, media_key: int):
+        _write_to_hid(self.media_path, (media_key, 0))
 
-    def _get_modifiers_bitmap(self) -> int:
+    def __init__(self, keyboard_path: str, media_path: str, logger: logging.Logger):
+        self.keyboard_path = keyboard_path
+        self.media_path = media_path
+        self._logger = logger
+        self._pressed_keys = (0, 0, 0, 0, 0, 0)
+        self._modifiers_byte = 0
+        self._active_modifiers = {
+            keycodes.MODIFIER_LEFT_CTRL: False,
+            keycodes.MODIFIER_LEFT_SHIFT: False,
+            keycodes.MODIFIER_LEFT_ALT: False,
+            keycodes.MODIFIER_LEFT_META: False,
+            keycodes.MODIFIER_RIGHT_CTRL: False,
+            keycodes.MODIFIER_RIGHT_SHIFT: False,
+            keycodes.MODIFIER_RIGHT_ALT: False,
+            keycodes.MODIFIER_RIGHT_META: False,
+        }
+
+    def _recalculate_modifiers_byte(self):
         modifier_bitmask = 0
 
-        for modifier in self._active_modifiers:
-            modifier_bitmask |= modifier
+        for modifier, value in self._active_modifiers.items():
+            if value:
+                modifier_bitmask |= modifier
 
-        return modifier_bitmask
+        self._modifiers_byte = modifier_bitmask
+
+    def _set_modifier_state(self, modifier: int, state: bool):
+        if modifier not in self._active_modifiers:
+            raise ValueError(f'Key {modifier} is not a modifier key')
+
+        self._active_modifiers[modifier] = state
+        self._recalculate_modifiers_byte()
+
+    def _set_key_state(self, keyCode: int, state: bool):
+        if state and keyCode not in self._pressed_keys:
+            try:
+                free_index = self._pressed_keys.index(0)
+                self._pressed_keys = tuple(
+                    keyCode if i == free_index else k
+                    for i, k in enumerate(self._pressed_keys)
+                )
+            except ValueError:
+                raise ValueError('Cannot press more than 6 keys at once')
+        else:
+            self._pressed_keys = tuple(
+                0 if k == keyCode else k for k in self._pressed_keys
+            )
 
     def is_modifier(self, keyCode: int) -> bool:
-        return keyCode in modifier_keys
+        return keyCode in modifier_keycodes
 
     def is_modifier_pressed(self, keyCode: int) -> bool:
         return keyCode in self._active_modifiers
 
     def is_key_pressed(self, keyCode: int) -> bool:
-        return keyCode in self._pressed_keys
+        return keyCode in self._pressed_keys[2:]
 
     def send_key_state(self, keyCode: int, action: KeyActionType):
         if action == KeyActionType.DOWN and not self.is_key_pressed(keyCode):
-            self._pressed_keys.append(keyCode)
-            self._send_hid_state()
+            self._set_key_state(keyCode, True)
         elif action == KeyActionType.UP and self.is_key_pressed(keyCode):
-            self._pressed_keys.remove(keyCode)
-            self._send_hid_state()
+            self._set_key_state(keyCode, False)
+
+        self._send_key_hid_state()
 
     def send_key_press(self, keyCode: int, interval: int = 30):
         self.send_key_state(keyCode, KeyActionType.DOWN)
         time.sleep(interval / 1000)
         self.send_key_state(keyCode, KeyActionType.UP)
 
+    def send_media_key_state(self, keyCode: int, action: KeyActionType):
+        if action == KeyActionType.DOWN:
+            self._send_media_hid_state(keyCode)
+        else:
+            self._send_media_hid_state(0)
+
+    def send_media_key_press(self, keyCode: int, interval: int = 30):
+        self._send_media_hid_state(keyCode)
+        time.sleep(interval / 1000)
+        self._send_media_hid_state(0)
+
     def send_modifier_state(self, modifier: int, action: KeyActionType):
         if not self.is_modifier(modifier):
             raise ValueError(f'Key {modifier} is not a modifier key')
 
         if action == KeyActionType.DOWN:
-            self._active_modifiers.append(modifier)
-            self._send_hid_state()
+            self._set_modifier_state(modifier, True)
         else:
-            self._active_modifiers.remove(modifier)
+            self._set_modifier_state(modifier, False)
 
-        self._send_hid_state()
+        self._send_key_hid_state()
 
     def send_modifier_press(self, modifier: int, interval: int = 30):
         if not self.is_modifier(modifier):
@@ -128,10 +160,14 @@ class HidKeyboardService:
         self.send_modifier_state(modifier, KeyActionType.UP)
 
     def unpress_all_keys(self):
-        self._pressed_keys = []
-        self._active_modifiers = []
+        self._pressed_keys = (0, 0, 0, 0, 0, 0, 0, 0)
 
-        release_all_keys(self.keyboard_path)
+        for modifier in self._active_modifiers:
+            self._active_modifiers[modifier] = False
+
+        self._recalculate_modifiers_byte()
+        self._send_key_hid_state()
+        self._send_media_hid_state(0)
 
 
 class InputService:
@@ -162,6 +198,14 @@ class InputService:
         else:
             self._kb_service.send_modifier_state(key_code, action_type)
 
+    def _press_media_key(self, key_code: int, action_type: KeyActionType):
+        if action_type == KeyActionType.PRESS:
+            self._kb_service.send_media_key_press(
+                key_code, self._config_service.key_press_interval
+            )
+        else:
+            self._kb_service.send_media_key_state(key_code, action_type)
+
     def press_key(self, key_id: int, action_type: KeyActionType, options: KeyOptions):
         key_code = key_to_keycode(key_id)
         if is_modifier_key(key_id):
@@ -169,6 +213,11 @@ class InputService:
                 f'Pressing MODIFIER {key_id}->{key_code} {action_type.name} {options}'
             )
             self._kb_service.send_modifier_state(key_code, action_type)
+        elif is_media_key(key_id):
+            self._logger.info(
+                f'Pressing MEDIA KEY {key_id}->{key_code} {action_type.name} {options}'
+            )
+            self._press_media_key(key_code, action_type)
         else:
             self._logger.info(
                 f'Pressing KEY {key_id}->{key_code} {action_type.name} {options}'

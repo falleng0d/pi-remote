@@ -36,7 +36,9 @@ if __name__ == '__main__':
     server = grpc.server(thread_pool)
 
     hid_service = HidKeyboardService(
-        keyboard_path='/dev/null', logger=logging.getLogger(__name__)
+        keyboard_path='/dev/null',
+        media_path='/dev/null',
+        logger=logging.getLogger(__name__),
     )
 
     input_service = InputService(
@@ -46,6 +48,7 @@ if __name__ == '__main__':
     config_service = ConfigService(logger=logging.getLogger(__name__))
 
     hid_service.keyboard_path = config_service.keyboard_path
+    hid_service.media_path = config_service.media_path
 
     if config_service.is_debug:
         root_logger.setLevel(logging.DEBUG)
