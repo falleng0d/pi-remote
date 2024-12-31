@@ -58,3 +58,7 @@ done
 popd
 
 rmdir "${USB_DEVICE_DIR}"
+
+rm -f /dev/hidg0
+rm -f /dev/hidg1
+rm -f /dev/hidg2

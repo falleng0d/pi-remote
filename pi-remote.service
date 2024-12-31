@@ -1,0 +1,15 @@
+[Unit]
+Description=Pi Remote - gRPC-based keyboard & mouse gadget
+After=syslog.target network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pi-remote
+ExecStart=/opt/pi-remote/.venv/bin/python app/main.py
+Environment=PYTHONPATH=/opt/pi-remote
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
