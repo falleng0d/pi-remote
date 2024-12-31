@@ -98,30 +98,3 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         self.config_svc.set_cursor_acceleration(request.cursor_acceleration)
 
         return self.GetConfig(input_pb2.Empty(), context)
-
-
-def serve() -> None:
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    input_service = InputService()
-    config_service = ConfigService(input_service=input_service)
-    config_service.load()  # Load configuration from file
-
-    input_pb2_grpc.add_InputMethodsServicer_to_server(
-        InputMethodsService(
-            config_service=config_service,
-            input_service=input_service,
-            logger=logging.getLogger(__name__),
-        ),
-        server,
-    )
-
-    address = f'{config_service.host}:{config_service.port}'
-    server.add_insecure_port(address)
-    server.start()
-
-    logging.info(f'Server started on {address}')
-    server.wait_for_termination()
-
-
-if __name__ == '__main__':
-    serve()
