@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
 
 import input_pb2
 
@@ -47,6 +48,31 @@ class KeyOptions:
 
     def __str__(self):
         return f'KeyOptions(no_repeat: {self.no_repeat}, disable_unwanted_modifiers: {self.disable_unwanted_modifiers})'
+
+
+@dataclass(frozen=True)
+class HotkeyOptions:
+    speed: Optional[int] = None
+    disable_unwanted_modifiers: Optional[bool] = None
+
+    @classmethod
+    def from_pb(cls, options: input_pb2.HotkeyOptions):
+        return cls(
+            speed=options.speed,
+            disable_unwanted_modifiers=options.no_modifiers,
+        )
+
+    def to_pb(self):
+        options = input_pb2.HotkeyOptions(
+            speed=self.speed if self.speed is not None else None,
+            no_modifiers=self.disable_unwanted_modifiers
+            if self.disable_unwanted_modifiers is not None
+            else None,
+        )
+        return options
+
+    def __str__(self):
+        return f'HotkeyOptions(speed: {self.speed}, disable_unwanted_modifiers: {self.disable_unwanted_modifiers})'
 
 
 class Key(Enum):

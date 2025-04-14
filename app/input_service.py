@@ -12,6 +12,7 @@ from config_service import ConfigService
 from hid import keycodes
 from hid.keycodes import modifier_keycodes
 from key import ButtonActionType
+from key import HotkeyOptions
 from key import Key
 from key import KeyActionType
 from key import KeyOptions
@@ -62,9 +63,7 @@ class HidKeyboardService:
     _modifiers_byte: int
 
     def _send_key_hid_state(self):
-        _write_to_hid(
-            self.keyboard_path, (self._modifiers_byte, 0, *self._pressed_keys)
-        )
+        _write_to_hid(self.keyboard_path, (self._modifiers_byte, 0, *self._pressed_keys))
 
     def _send_media_hid_state(self, media_key: int):
         _write_to_hid(self.media_path, (media_key, 0))
@@ -127,7 +126,7 @@ class HidKeyboardService:
         return keyCode in self._pressed_keys[2:]
 
     def send_key_state(self, keyCode: int, action: KeyActionType):
-        self._set_key_state(keyCode, True if action == KeyActionType.DOWN else False)
+        self._set_key_state(keyCode, action == KeyActionType.DOWN)
         self._send_key_hid_state()
 
     def send_key_press(self, keyCode: int, interval: int = 30):
@@ -353,3 +352,43 @@ class InputService:
     def press_mouse_key(self, button: Button, action_type: ButtonActionType):
         self._logger.debug(f'Pressing mouse {action_type.name} {button.name}')
         self._mouse_service.send_button_state(button, action_type)
+
+    def press_hotkey(
+        self, hotkey_steps, action_type: KeyActionType, options: HotkeyOptions
+    ):
+        self._logger.info(
+            f'Processing hotkey with {len(hotkey_steps)} steps, action: {action_type.name}'
+        )
+
+        if action_type == KeyActionType.UP:
+            return
+
+        # Default speed if not specified
+        default_speed = (
+            options.speed
+            if options and options.speed is not None
+            else self._config_service.key_press_interval
+        )
+
+        # Process each step in the sequence
+        for step in hotkey_steps:
+            key_code = step.key_code
+            step_action = step.action_type
+
+            if step.wait:
+                time.sleep(step.wait / 1000)
+
+            key = Key(key_code)
+
+            # Use step-specific speed or default
+            speed = step.speed if step.speed is not None else default_speed
+
+            key_options = KeyOptions(
+                no_repeat=True,
+                disable_unwanted_modifiers=options.disable_unwanted_modifiers if options else False
+            )
+
+            self.press_key(key, step_action, key_options)
+
+            if step_action == KeyActionType.PRESS:
+                time.sleep(speed / 1000)

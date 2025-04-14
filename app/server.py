@@ -7,8 +7,10 @@ import input_pb2
 import input_pb2_grpc
 from button import Button
 from config_service import ConfigService
+from hotkey_parser import parse_hotkey
 from input_service import InputService
 from key import ButtonActionType
+from key import HotkeyOptions
 from key import Key
 from key import KeyActionType
 from key import KeyOptions
@@ -48,11 +50,25 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         return input_pb2.Response(message='Ok')
 
     def PressHotkey(
-        self,
-        request: input_pb2.Hotkey,
-        context: grpc.ServicerContext,
+        self, request: input_pb2.Hotkey, context: grpc.ServicerContext
     ) -> input_pb2.Response:
-        raise NotImplementedError()
+        hotkey_str = request.hotkey
+        request_type = KeyActionType(request.type)
+        options = (
+            HotkeyOptions.from_pb(request.options)
+            if request.HasField('options')
+            else None
+        )
+
+        self._logger.info(
+            f'Processing hotkey: {hotkey_str} with action {request_type.name}'
+        )
+
+        hotkey_steps = parse_hotkey(hotkey_str)
+        
+        self.input_svc.press_hotkey(hotkey_steps, request_type, options)
+
+        return input_pb2.Response(message='Ok')
 
     def PressMouseKey(
         self,
