@@ -1,4 +1,5 @@
 src = ["app"]
+line-length = 89
 
 select = [
   "D", # Enable pydocstyle rules.
@@ -27,7 +28,7 @@ exclude = [
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
-fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
+fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TID", "TRY", "UP", "YTT"]
 unfixable = []
 
 # Assume Python 3.9
@@ -35,8 +36,7 @@ target-version = "py39"
 
 [format]
 quote-style = "single"
-
-# line-length = 88
+# line-length = 89
 
 [flake8-quotes]
 # Use consistent quotes regardless of whether it allows us to minimize escape

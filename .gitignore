@@ -80,3 +80,4 @@ debian-pkg/releases/
 e2e-results/
 /playwright-report/
 /playwright/.cache/
+/.idea
