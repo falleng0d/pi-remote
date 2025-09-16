@@ -1,0 +1,2 @@
+python-engineio
+grpcio==1.68.1
