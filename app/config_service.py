@@ -1,11 +1,15 @@
 import logging
 import types
 from pathlib import Path
+from typing import Any
+
+class NotInitializedError(Exception):
+    pass
 
 
 class PyPreferences:
     filepath: Path
-    data: dict[str, any]
+    data: dict[str, Any]
 
     def __init__(self, filename: str):
         # First check local directory
@@ -126,8 +130,6 @@ class ConfigService:
 
         self._initialized = True
 
-        self.log_preferences()
-
         self._save()
 
     def _save(self):
@@ -142,6 +144,10 @@ class ConfigService:
         self._prefs.set('media_path', self._media_path)
 
         self._prefs.save()
+        
+        self._logger.info('Preferences saved')
+        
+        self.log_preferences()
 
     def log_preferences(self):
         self._logger.info('Host: %s', self._host)
@@ -156,71 +162,80 @@ class ConfigService:
 
     def set_cursor_speed(self, speed: float):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
         if speed < 0 or speed > 2:
             raise ValueError('Speed must be between 0 and 2')
 
-        self._prefs.set('cursor_speed', speed)
         self._cursor_speed = speed
+        
+        self._save()
 
     def set_cursor_acceleration(self, acceleration: float):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
         if acceleration < 0 or acceleration > 2:
             raise ValueError('Acceleration must be between 0 and 2')
 
-        self._prefs.set('cursor_acceleration', acceleration)
         self._cursor_acceleration = acceleration
+        
+        self._save()
 
     def set_key_press_interval(self, interval: int):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
         if interval < 0 or interval > 1000:
             raise ValueError('Interval must be between 0 and 1000')
 
-        self._prefs.set('key_press_interval', interval)
         self._key_press_interval = interval
+        
+        self._save()
 
     def set_host(self, host: str):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
 
-        self._prefs.set('host', host)
         self._host = host
+        
+        self._save()
 
     def set_port(self, port: int):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
         if port < 1 or port > 65535:
             raise ValueError('Port must be between 1 and 65535')
 
-        self._prefs.set('port', port)
         self._port = port
+        
+        self._save()
 
     def set_debug(self, debug: bool):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
 
-        self._prefs.set('debug', debug)
         self._is_debug = debug
+        
+        self._save()
 
     def set_keyboard_path(self, path: str):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
 
-        self._prefs.set('keyboard_path', path)
         self._keyboard_path = path
+        
+        self._save()
 
     def set_mouse_path(self, path: str):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
 
-        self._prefs.set('mouse_path', path)
         self._mouse_path = path
+        
+        self._save()
 
     def set_media_path(self, path: str):
         if not self._initialized:
-            raise Exception('Preferences not initialized!')
+            raise NotInitializedError('Preferences not initialized!')
 
-        self._prefs.set('media_path', path)
         self._media_path = path
+        
+        self._save()
