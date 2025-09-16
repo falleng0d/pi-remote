@@ -1,2 +1,2 @@
-python-engineio
-grpcio==1.68.1
+grpcio==1.75.0
+python-engineio>=4.12.2
