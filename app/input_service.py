@@ -1,9 +1,10 @@
+import contextlib
 import logging
 import multiprocessing
 import time
 from math import floor
-from typing import BinaryIO
-from typing import Iterable
+from typing import BinaryIO, Iterable, Callable, Optional
+from acceleration_curves import linear, ease_out_quad
 
 import execute
 from button import Button
@@ -21,7 +22,6 @@ from key_utils import is_modifier_key
 from key_utils import key_to_keycode
 
 _hid_lock = multiprocessing.Lock()
-
 
 def _write_to_hid_handle(hid_handle: BinaryIO, buffer: Iterable[int]):
     try:
@@ -109,8 +109,8 @@ class HidKeyboardService:
                     keyCode if i == free_index else k
                     for i, k in enumerate(self._pressed_keys)
                 )
-            except ValueError:
-                raise ValueError('Cannot press more than 6 keys at once')
+            except ValueError as e:
+                raise ValueError('Cannot press more than 6 keys at once') from e
         else:
             self._pressed_keys = tuple(
                 0 if k == keyCode else k for k in self._pressed_keys
@@ -146,9 +146,7 @@ class HidKeyboardService:
         if not self.is_modifier(modifier):
             raise ValueError(f'Key {modifier} is not a modifier key')
 
-        self._set_modifier_state(
-            modifier, True if action == KeyActionType.DOWN else False
-        )
+        self._set_modifier_state(modifier, action == KeyActionType.DOWN)
 
         self._send_key_hid_state()
 
@@ -174,11 +172,10 @@ class HidKeyboardService:
 def _send_mouse_event(mouse_path: str, buffer: Iterable[int]):
     try:
         _write_to_hid(mouse_path, buffer)
-    except (BrokenPipeError, ValueError):
+    except (BrokenPipeError, ValueError) as e:
         logging.info(f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}')
-        raise RuntimeError(
-            f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}'
-        )
+        
+        raise RuntimeError(f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}') from e
 
 
 def send_mouse_event(
@@ -234,11 +231,13 @@ class HidMouseService:
     mouse_path: str
     _logger: logging.Logger
     _button_state: int
+    _config_service: ConfigService
 
-    def __init__(self, mouse_path: str, logger: logging.Logger):
+    def __init__(self, config_service: ConfigService, mouse_path: str, logger: logging.Logger):
         self.mouse_path = mouse_path
         self._logger = logger
         self._button_state = 0
+        self._config_service = config_service
 
     def _write_to_hid(self):
         # Send event with current button state but no movement/scroll

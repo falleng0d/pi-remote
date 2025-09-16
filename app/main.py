@@ -54,6 +54,7 @@ if __name__ == '__main__':
     )
 
     mouse_hid_service = HidMouseService(
+        config_service=config_service,
         mouse_path='/dev/null',
         logger=logging.getLogger(__name__),
     )
