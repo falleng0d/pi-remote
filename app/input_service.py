@@ -238,7 +238,15 @@ class HidMouseService:
         self._logger = logger
         self._button_state = 0
         self._config_service = config_service
-
+    
+    @property
+    def acceleration(self):
+        return self._config_service.cursor_acceleration
+    
+    @property
+    def speed(self):
+        return self._config_service.cursor_speed
+    
     def _write_to_hid(self):
         # Send event with current button state but no movement/scroll
         send_mouse_event(
