@@ -1,10 +1,8 @@
-import contextlib
 import logging
 import multiprocessing
 import time
 from math import floor
-from typing import BinaryIO, Iterable, Callable, Optional
-from acceleration_curves import linear, ease_out_quad
+from typing import BinaryIO, Iterable
 
 import execute
 from button import Button
@@ -185,6 +183,7 @@ def send_mouse_event(
     relative_y: float,
     vertical_wheel_delta: int,
     horizontal_wheel_delta: int,
+    speed: float
 ) -> None:
     """Send a mouse event to the target machine over USB HID.
 
@@ -195,10 +194,11 @@ def send_mouse_event(
     :param vertical_wheel_delta: A -1, 0, or 1 representing movement of the mouse's
         horizontal scroll wheel.
     :param horizontal_wheel_delta:
+    :param speed: A multiplier for the mouse's speed.
     :return: None
     """
     # pylint: disable=invalid-name
-    x, y = floor(relative_x * 10), floor(relative_y * 10)
+    x, y = floor(relative_x * speed * 5), floor(relative_y * speed * 5)
 
     buf = [0] * 5
     buf[0] = buttons  # Byte 0 = Button 1 pressed
@@ -256,6 +256,7 @@ class HidMouseService:
             0.0,  # No Y movement
             0,  # No vertical scroll
             0,  # No horizontal scroll
+            self.speed
         )
 
     def send_button_state(self, button: Button, action: ButtonActionType):
@@ -286,6 +287,7 @@ class HidMouseService:
             delta_y,
             0,  # No vertical scroll
             0,  # No horizontal scroll
+            self.speed
         )
 
     def release_all_buttons(self):
