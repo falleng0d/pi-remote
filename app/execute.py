@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import multiprocessing
 import threading
@@ -7,7 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 def _t_initialize_pool():
     global t_pool
-    t_pool = ThreadPoolExecutor(max_workers=10)
+    
+    t_pool = ThreadPoolExecutor(max_workers=4)
 
 
 def _initialize_pool():
@@ -92,7 +94,7 @@ class ProcessWithResult(multiprocessing.Process):
         return self.parent_conn.recv() if self.parent_conn.poll() else None
 
 
-def with_timeout(function, *, args=None, timeout_in_seconds):
+def with_timeout(function, *, args=None, timeout_in_seconds: float):
     """Executes a function in a child process with a specified timeout.
 
     Usage example:
@@ -117,13 +119,13 @@ def with_timeout(function, *, args=None, timeout_in_seconds):
         _initialize_pool()
 
     result = pool.apply_async(function, args=args or ())
-    try:
+    with contextlib.suppress(multiprocessing.TimeoutError):
         return result.get(timeout=timeout_in_seconds)
-    except multiprocessing.TimeoutError:
-        pass
+    
+    return None
 
 
-def with_timeout_t(function, *, args=None, timeout_in_seconds):
+def with_timeout_t(function, *, args=None, timeout_in_seconds: float):
     """Executes a function in a thread with a specified timeout.
 
     Usage example:
@@ -150,8 +152,8 @@ def with_timeout_t(function, *, args=None, timeout_in_seconds):
     future = t_pool.submit(function, *(args or ()))
     try:
         return future.result(timeout=timeout_in_seconds)
-    except TimeoutError:
-        raise TimeoutError('Function execution exceeded the timeout')
+    except TimeoutError as e:
+        raise TimeoutError('Function execution exceeded the timeout') from e
 
 
 def _wait_for_thread_exit(target_thread):
