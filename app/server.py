@@ -99,18 +99,21 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         request: input_pb2.Empty,
         context: grpc.ServicerContext,
     ) -> input_pb2.Config:
-        config = input_pb2.Config(
+        return input_pb2.Config(
             cursor_speed=self.config_svc.cursor_speed,
             cursor_acceleration=self.config_svc.cursor_acceleration,
         )
-        return config
 
     def SetConfig(
         self,
         request: input_pb2.Config,
         context: grpc.ServicerContext,
     ) -> input_pb2.Config:
-        self.config_svc.set_cursor_speed(request.cursor_speed)
-        self.config_svc.set_cursor_acceleration(request.cursor_acceleration)
+        if request.cursor_speed:
+            self._logger.info(f'Setting cursor speed to {request.cursor_speed}')
+            self.config_svc.set_cursor_speed(request.cursor_speed)
+        if request.cursor_acceleration:
+            self._logger.info(f'Setting cursor acceleration to {request.cursor_acceleration}')
+            self.config_svc.set_cursor_acceleration(request.cursor_acceleration)
 
         return self.GetConfig(input_pb2.Empty(), context)
