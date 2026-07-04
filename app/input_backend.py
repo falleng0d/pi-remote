@@ -68,7 +68,7 @@ class UsbGadgetBackend(InputBackend):
         self._write_to_hid(self.keyboard_path, (modifiers, 0, *keys))
 
     def send_consumer_report(self, usage: int) -> None:
-        self._write_to_hid(self.media_path, (usage, 0))
+        self._write_to_hid(self.media_path, (usage & 0xFF, usage >> 8))
 
     def send_mouse_report(
         self,

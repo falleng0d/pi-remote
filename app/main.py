@@ -1,4 +1,5 @@
 import logging
+import sys
 from concurrent import futures
 
 import grpc
@@ -16,14 +17,12 @@ from server import InputMethodsService
 root_logger = logging.getLogger()
 root_logger.propagate = True
 
-# log to stdout if INFO or higher and stderr if WARNING or higher
-stdout_logger = logging.StreamHandler()
-stdout_logger.addFilter(lambda record: record.levelno >= logging.WARNING)
-stdout_logger.setLevel(logging.INFO)
+stdout_logger = logging.StreamHandler(sys.stdout)
+stdout_logger.setLevel(0)
+stdout_logger.addFilter(lambda record: record.levelno < logging.WARNING)
 
-stderr_logger = logging.StreamHandler()
-stderr_logger.setLevel(0)
-stderr_logger.addFilter(lambda record: record.levelno < logging.WARNING)
+stderr_logger = logging.StreamHandler(sys.stderr)
+stderr_logger.setLevel(logging.WARNING)
 
 formatter = logging.Formatter('[%(asctime)s][%(levelname)s][%(name)s]: %(message)s')
 stdout_logger.setFormatter(formatter)

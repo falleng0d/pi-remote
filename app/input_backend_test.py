@@ -1,10 +1,27 @@
+import logging
 import subprocess
 import unittest
 
+from input_backend import UsbGadgetBackend
 from input_backend import KarabinerBackend
 
 
 class KarabinerBackendTest(unittest.TestCase):
+    def test_usb_gadget_consumer_report_is_little_endian_16_bit_usage(self):
+        backend = UsbGadgetBackend.__new__(UsbGadgetBackend)
+        backend.media_path = '/dev/null'
+        backend._logger = logging.getLogger(__name__)
+        writes = []
+
+        def write_to_hid(hid_path, buffer):
+            writes.append((hid_path, buffer))
+
+        backend._write_to_hid = write_to_hid
+
+        backend.send_consumer_report(0x0224)
+
+        self.assertEqual(writes, [('/dev/null', (0x24, 0x02))])
+
     def test_keyboard_report_sends_state_transitions(self):
         backend = KarabinerBackend.__new__(KarabinerBackend)
         backend._device_hash = 0
