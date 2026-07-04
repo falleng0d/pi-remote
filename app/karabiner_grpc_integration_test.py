@@ -25,6 +25,12 @@ from pathlib import Path
 from typing import Any
 from typing import cast
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = REPO_ROOT / 'app'
+for path in (str(REPO_ROOT), str(APP_DIR)):
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
 import grpc
 
 from app import input_pb2
@@ -53,7 +59,7 @@ def _free_port() -> int:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return REPO_ROOT
 
 
 def _helper_command() -> str:
@@ -133,7 +139,7 @@ class KarabinerGrpcIntegrationTest(unittest.TestCase):
 
             server_env = os.environ.copy()
             server_env['PYTHONPATH'] = os.pathsep.join(
-                [str(_repo_root()), server_env.get('PYTHONPATH', '')]
+                [str(_repo_root()), str(APP_DIR), server_env.get('PYTHONPATH', '')]
             ).strip(os.pathsep)
 
             server = subprocess.Popen(

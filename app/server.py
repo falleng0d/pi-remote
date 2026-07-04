@@ -16,6 +16,19 @@ from key import KeyActionType
 from key import KeyOptions
 
 
+KEY_ACTION_TYPES = {
+    input_pb2.KeyActionType.UP: KeyActionType.UP,
+    input_pb2.KeyActionType.DOWN: KeyActionType.DOWN,
+    input_pb2.KeyActionType.PRESS: KeyActionType.PRESS,
+}
+
+BUTTON_ACTION_TYPES = {
+    input_pb2.MouseKey.KeyActionType.UP: ButtonActionType.UP,
+    input_pb2.MouseKey.KeyActionType.DOWN: ButtonActionType.DOWN,
+    input_pb2.MouseKey.KeyActionType.PRESS: ButtonActionType.PRESS,
+}
+
+
 class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
     _logger: logging.Logger
     config_svc: ConfigService
@@ -39,7 +52,7 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
         key = Key(request.id)
-        request_type = KeyActionType(request.type)
+        request_type = KEY_ACTION_TYPES[request.type]
         options = (
             KeyOptions.from_pb(request.options) if request.HasField('options') else None
         )
@@ -53,7 +66,7 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         self, request: input_pb2.Hotkey, context: grpc.ServicerContext
     ) -> input_pb2.Response:
         hotkey_str = request.hotkey
-        request_type = KeyActionType(request.type)
+        request_type = KEY_ACTION_TYPES[request.type]
         options = (
             HotkeyOptions.from_pb(request.options)
             if request.HasField('options')
@@ -76,7 +89,7 @@ class InputMethodsService(input_pb2_grpc.InputMethodsServicer):
         context: grpc.ServicerContext,
     ) -> input_pb2.Response:
         button = Button(request.id)
-        request_type = ButtonActionType(request.type)
+        request_type = BUTTON_ACTION_TYPES[request.type]
 
         self.input_svc.press_mouse_key(button, request_type)
 

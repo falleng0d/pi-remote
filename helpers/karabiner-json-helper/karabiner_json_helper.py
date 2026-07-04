@@ -10,12 +10,14 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
+from pathlib import Path
 from typing import BinaryIO
 
 DEFAULT_SOCKET_PATH = (
     '/Library/Application Support/org.pqrs/tmp/rootonly/'
     'karabiner_virtual_hid_device_service.sock'
 )
+DEFAULT_SOCKET_DIR = '/Library/Application Support/org.pqrs/tmp/rootonly/vhidd_server'
 CLIENT_PROTOCOL_VERSION = 7
 DEFAULT_VENDOR_ID = 0x16C0
 DEFAULT_PRODUCT_ID = 0x27DB
@@ -93,12 +95,20 @@ def read_frame(source: BinaryIO | socket.socket) -> tuple[MessageType, bytes]:
     return MessageType(body[0]), body[1:]
 
 
+def resolve_socket_path(socket_path: str) -> str:
+    if Path(socket_path).exists() or socket_path != DEFAULT_SOCKET_PATH:
+        return socket_path
+    candidates = sorted(Path(DEFAULT_SOCKET_DIR).glob('*.sock'), key=lambda path: path.stat().st_mtime)
+    return str(candidates[-1]) if candidates else socket_path
+
+
 def connect_socket(socket_path: str) -> socket.socket:
     deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
     while True:
+        resolved_socket_path = resolve_socket_path(socket_path)
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            connection.connect(socket_path)
+            connection.connect(resolved_socket_path)
             return connection
         except (FileNotFoundError, ConnectionRefusedError):
             connection.close()
