@@ -50,6 +50,17 @@ class KarabinerJsonHelperTest(unittest.TestCase):
         self.assertEqual(payload[11:19], (0x27DB).to_bytes(8, 'little'))
         self.assertEqual(payload[19:27], (33).to_bytes(8, 'little'))
 
+    def test_datagram_request_payload_uses_v6_header(self):
+        payload = helper.datagram_request_payload(
+            helper.DatagramRequestType.VIRTUAL_HID_KEYBOARD_INITIALIZE,
+            helper.keyboard_parameters(33),
+        )
+
+        self.assertEqual(payload[:5], bytes([ord('c'), ord('p'), 5, 0, 1]))
+        self.assertEqual(payload[5:13], (0x16C0).to_bytes(8, 'little'))
+        self.assertEqual(payload[13:21], (0x27DB).to_bytes(8, 'little'))
+        self.assertEqual(payload[21:29], (33).to_bytes(8, 'little'))
+
     def test_dry_run_validates_unsupported_page(self):
         client = helper.DryRunClient()
 

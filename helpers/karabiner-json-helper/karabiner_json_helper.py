@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import struct
 import sys
@@ -17,8 +18,14 @@ DEFAULT_SOCKET_PATH = (
     '/Library/Application Support/org.pqrs/tmp/rootonly/'
     'karabiner_virtual_hid_device_service.sock'
 )
-DEFAULT_SOCKET_DIR = '/Library/Application Support/org.pqrs/tmp/rootonly/vhidd_server'
+DATAGRAM_SOCKET_DIR = '/Library/Application Support/org.pqrs/tmp/rootonly/vhidd_server'
+DATAGRAM_SOCKET_PATH = (
+    '/Library/Application Support/org.pqrs/tmp/rootonly/'
+    'virtual_hid_device_service_server.sock'
+)
+DATAGRAM_CLIENT_DIR = '/Library/Application Support/org.pqrs/tmp/rootonly/vhidd_client'
 CLIENT_PROTOCOL_VERSION = 7
+DATAGRAM_CLIENT_PROTOCOL_VERSION = 5
 DEFAULT_VENDOR_ID = 0x16C0
 DEFAULT_PRODUCT_ID = 0x27DB
 KEYBOARD_PAGE = 0x07
@@ -27,6 +34,9 @@ MAX_KEYS = 32
 HEARTBEAT_INTERVAL_SECONDS = 3.0
 CONNECT_TIMEOUT_SECONDS = 10.0
 CONNECT_RETRY_INTERVAL_SECONDS = 0.2
+LOCAL_DATAGRAM_USER_DATA = 1
+LOCAL_DATAGRAM_HEARTBEAT = 0
+LOCAL_DATAGRAM_HEARTBEAT_DEADLINE_MS = 5000
 
 
 class MessageType(IntEnum):
@@ -51,6 +61,21 @@ class RequestType(IntEnum):
     POST_APPLE_VENDOR_TOP_CASE_INPUT_REPORT = 9
     POST_GENERIC_DESKTOP_INPUT_REPORT = 10
     POST_POINTING_INPUT_REPORT = 11
+
+
+class DatagramRequestType(IntEnum):
+    VIRTUAL_HID_KEYBOARD_INITIALIZE = 1
+    VIRTUAL_HID_KEYBOARD_TERMINATE = 2
+    VIRTUAL_HID_POINTING_INITIALIZE = 4
+    VIRTUAL_HID_POINTING_TERMINATE = 5
+    POST_KEYBOARD_INPUT_REPORT = 7
+    POST_CONSUMER_INPUT_REPORT = 8
+    POST_POINTING_INPUT_REPORT = 12
+
+
+class DatagramResponseType(IntEnum):
+    VIRTUAL_HID_KEYBOARD_READY = 4
+    VIRTUAL_HID_POINTING_READY = 5
 
 
 @dataclass
@@ -95,20 +120,31 @@ def read_frame(source: BinaryIO | socket.socket) -> tuple[MessageType, bytes]:
     return MessageType(body[0]), body[1:]
 
 
-def resolve_socket_path(socket_path: str) -> str:
-    if Path(socket_path).exists() or socket_path != DEFAULT_SOCKET_PATH:
-        return socket_path
-    candidates = sorted(Path(DEFAULT_SOCKET_DIR).glob('*.sock'), key=lambda path: path.stat().st_mtime)
-    return str(candidates[-1]) if candidates else socket_path
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0
+
+
+def find_datagram_socket_path() -> str | None:
+    fixed_socket = Path(DATAGRAM_SOCKET_PATH)
+    if fixed_socket.exists():
+        return str(fixed_socket)
+    candidates = sorted(Path(DATAGRAM_SOCKET_DIR).glob('*.sock'), key=_mtime)
+    return str(candidates[-1]) if candidates else None
+
+
+def is_datagram_socket_path(socket_path: str) -> bool:
+    return '/vhidd_server/' in socket_path or socket_path == DATAGRAM_SOCKET_PATH
 
 
 def connect_socket(socket_path: str) -> socket.socket:
     deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
     while True:
-        resolved_socket_path = resolve_socket_path(socket_path)
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            connection.connect(resolved_socket_path)
+            connection.connect(socket_path)
             return connection
         except (FileNotFoundError, ConnectionRefusedError):
             connection.close()
@@ -122,6 +158,10 @@ def connect_socket(socket_path: str) -> socket.socket:
 
 def request_payload(request_type: RequestType, payload: bytes = b'') -> bytes:
     return struct.pack('<HB', CLIENT_PROTOCOL_VERSION, request_type) + payload
+
+
+def datagram_request_payload(request_type: DatagramRequestType, payload: bytes = b'') -> bytes:
+    return b'cp' + struct.pack('<HB', DATAGRAM_CLIENT_PROTOCOL_VERSION, request_type) + payload
 
 
 def keyboard_parameters(country_code: int) -> bytes:
@@ -360,6 +400,165 @@ class KarabinerVirtualHIDClient:
         )
 
 
+class KarabinerDatagramHIDClient:
+    def __init__(self, socket_path: str, country_code: int):
+        self._socket_path = socket_path
+        self._country_code = country_code
+        self._socket: socket.socket | None = None
+        self._reader_thread: threading.Thread | None = None
+        self._heartbeat_thread: threading.Thread | None = None
+        self._client_socket_path = ''
+        self._closed = threading.Event()
+        self._write_lock = threading.Lock()
+        self._status_lock = threading.Lock()
+        self._keyboard_ready = False
+        self._pointing_ready = False
+        self._modifiers = 0
+        self._keyboard_keys: set[int] = set()
+        self._consumer_keys: set[int] = set()
+
+    def start(self) -> None:
+        client_dir = Path(DATAGRAM_CLIENT_DIR)
+        client_dir.mkdir(parents=True, exist_ok=True)
+        self._client_socket_path = str(client_dir / f'pi_remote_{os.getpid()}.sock')
+        Path(self._client_socket_path).unlink(missing_ok=True)
+
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        connection.bind(self._client_socket_path)
+        connection.connect(self._socket_path)
+        self._socket = connection
+        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader_thread.start()
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
+
+        self._send_request(
+            DatagramRequestType.VIRTUAL_HID_KEYBOARD_INITIALIZE,
+            keyboard_parameters(self._country_code),
+        )
+        self._send_request(DatagramRequestType.VIRTUAL_HID_POINTING_INITIALIZE)
+        self._wait_until_ready()
+
+    def close(self) -> None:
+        if self._socket is not None:
+            try:
+                self._send_request(
+                    DatagramRequestType.POST_KEYBOARD_INPUT_REPORT,
+                    keyboard_report(0, set()),
+                )
+                self._send_request(
+                    DatagramRequestType.POST_CONSUMER_INPUT_REPORT,
+                    consumer_report(set()),
+                )
+                self._send_request(DatagramRequestType.VIRTUAL_HID_KEYBOARD_TERMINATE)
+                self._send_request(DatagramRequestType.VIRTUAL_HID_POINTING_TERMINATE)
+            except OSError:
+                pass
+            self._closed.set()
+            try:
+                self._socket.close()
+            finally:
+                self._socket = None
+        if self._client_socket_path:
+            Path(self._client_socket_path).unlink(missing_ok=True)
+
+    def _send_request(self, request_type: DatagramRequestType, payload: bytes = b'') -> None:
+        if self._socket is None:
+            raise RuntimeError('Karabiner socket is not connected')
+        request = (
+            bytes([LOCAL_DATAGRAM_USER_DATA])
+            + datagram_request_payload(request_type, payload)
+        )
+        with self._write_lock:
+            self._socket.send(request)
+
+    def _send_heartbeat(self) -> None:
+        if self._socket is None:
+            raise RuntimeError('Karabiner socket is not connected')
+        heartbeat = struct.pack('<BI', LOCAL_DATAGRAM_HEARTBEAT, LOCAL_DATAGRAM_HEARTBEAT_DEADLINE_MS)
+        with self._write_lock:
+            self._socket.send(heartbeat)
+
+    def _read_loop(self) -> None:
+        while not self._closed.is_set() and self._socket is not None:
+            try:
+                data = self._socket.recv(1024)
+            except OSError:
+                return
+            if len(data) < 3 or data[0] != LOCAL_DATAGRAM_USER_DATA:
+                continue
+            response_type = data[1]
+            value = bool(data[2])
+            with self._status_lock:
+                if response_type == DatagramResponseType.VIRTUAL_HID_KEYBOARD_READY:
+                    self._keyboard_ready = value
+                elif response_type == DatagramResponseType.VIRTUAL_HID_POINTING_READY:
+                    self._pointing_ready = value
+
+    def _heartbeat_loop(self) -> None:
+        while not self._closed.wait(1.0):
+            try:
+                self._send_heartbeat()
+            except OSError:
+                return
+
+    def _wait_until_ready(self) -> None:
+        deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            with self._status_lock:
+                if self._keyboard_ready and self._pointing_ready:
+                    return
+            time.sleep(0.05)
+        raise TimeoutError('timed out waiting for Karabiner virtual HID devices to become ready')
+
+    def send_key(self, page: int, code: int, value: int) -> None:
+        validate_key(page, code, value)
+        if page == KEYBOARD_PAGE:
+            self._send_keyboard_key(code, value)
+        else:
+            self._send_consumer_key(code, value)
+
+    def _send_keyboard_key(self, code: int, value: int) -> None:
+        if 0xE0 <= code <= 0xE7:
+            bit = 1 << (code - 0xE0)
+            if value:
+                self._modifiers |= bit
+            else:
+                self._modifiers &= ~bit
+        elif value:
+            self._keyboard_keys.add(code)
+        else:
+            self._keyboard_keys.discard(code)
+        self._send_request(
+            DatagramRequestType.POST_KEYBOARD_INPUT_REPORT,
+            keyboard_report(self._modifiers, self._keyboard_keys),
+        )
+
+    def _send_consumer_key(self, code: int, value: int) -> None:
+        if value:
+            self._consumer_keys.add(code)
+        else:
+            self._consumer_keys.discard(code)
+        self._send_request(
+            DatagramRequestType.POST_CONSUMER_INPUT_REPORT,
+            consumer_report(self._consumer_keys),
+        )
+
+    def send_mouse(
+        self,
+        buttons: int,
+        x: int,
+        y: int,
+        vertical_wheel: int,
+        horizontal_wheel: int,
+    ) -> None:
+        validate_mouse(buttons)
+        self._send_request(
+            DatagramRequestType.POST_POINTING_INPUT_REPORT,
+            pointing_report(buttons, x, y, vertical_wheel, horizontal_wheel),
+        )
+
+
 def _int_field(message: dict[str, object], name: str) -> int:
     value = message.get(name)
     if not isinstance(value, int):
@@ -382,7 +581,7 @@ def validate_mouse(buttons: int) -> None:
 
 
 def handle_message(
-    client: KarabinerVirtualHIDClient | DryRunClient,
+    client: KarabinerVirtualHIDClient | KarabinerDatagramHIDClient | DryRunClient,
     message: dict[str, object],
 ) -> None:
     message_type = message.get('type')
@@ -404,7 +603,7 @@ def handle_message(
         raise ValueError(f'unsupported helper message type: {message_type}')
 
 
-def run(client: KarabinerVirtualHIDClient | DryRunClient) -> int:
+def run(client: KarabinerVirtualHIDClient | KarabinerDatagramHIDClient | DryRunClient) -> int:
     client.start()
     try:
         for line_number, line in enumerate(sys.stdin, 1):
@@ -430,12 +629,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def create_client(socket_path: str, country_code: int) -> KarabinerVirtualHIDClient | KarabinerDatagramHIDClient:
+    if socket_path == DEFAULT_SOCKET_PATH and not Path(socket_path).exists():
+        datagram_socket_path = find_datagram_socket_path()
+        if datagram_socket_path:
+            return KarabinerDatagramHIDClient(datagram_socket_path, country_code)
+    if is_datagram_socket_path(socket_path):
+        return KarabinerDatagramHIDClient(socket_path, country_code)
+    return KarabinerVirtualHIDClient(socket_path, country_code)
+
+
 def main() -> int:
     args = parse_args()
     if args.dry_run:
         client = DryRunClient()
     else:
-        client = KarabinerVirtualHIDClient(args.socket_path, args.keyboard_country_code)
+        client = create_client(args.socket_path, args.keyboard_country_code)
     try:
         return run(client)
     except PermissionError as error:
