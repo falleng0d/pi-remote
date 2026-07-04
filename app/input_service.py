@@ -228,15 +228,16 @@ class HidMouseService:
             self._button_state |= button_mask
         elif action == ButtonActionType.UP:
             self._button_state &= ~button_mask
-        elif action == ButtonActionType.MOVE:
+        elif action == ButtonActionType.PRESS:
             self.send_button_press(button)
+            return
 
         self._write_to_hid()
 
     def send_button_press(self, button: Button):
         """Send a mouse button press event."""
         self.send_button_state(button, ButtonActionType.DOWN)
-        time.sleep(0.15)
+        time.sleep(self._config_service.key_press_interval / 1000)
         self.send_button_state(button, ButtonActionType.UP)
 
     def send_movement(self, delta_x: float, delta_y: float):
@@ -320,7 +321,7 @@ class InputService:
         self._mouse_service.send_movement(delta_x, delta_y)
 
     def press_mouse_key(self, button: Button, action_type: ButtonActionType):
-        self._logger.debug(f'Pressing mouse {action_type.name} {button.name}')
+        self._logger.info(f'Pressing mouse {action_type.name} {button.name}')
         self._mouse_service.send_button_state(button, action_type)
 
     def press_hotkey(
