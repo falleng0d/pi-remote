@@ -1,7 +1,6 @@
 import logging
 import types
 from pathlib import Path
-from typing import Any
 
 class NotInitializedError(Exception):
     pass
@@ -9,7 +8,7 @@ class NotInitializedError(Exception):
 
 class PyPreferences:
     filepath: Path
-    data: dict[str, Any]
+    data: dict[str, object]
 
     def __init__(self, filename: str):
         # First check local directory
@@ -57,9 +56,13 @@ class ConfigService:
     _key_press_interval = 33
     _host = '0.0.0.0'
     _port = 9036
+    _output_backend = 'usb-gadget'
     _keyboard_path = '/dev/null'
     _mouse_path = '/dev/null'
     _media_path = '/dev/null'
+    _karabiner_helper_command = ''
+    _karabiner_device_hash = 0
+    _karabiner_allow_remote = False
 
     _key_repeat_delay = 300  # 300ms (CONSTANT)
     _key_repeat_interval = 1000 // 30  # 15hz (CONSTANT)
@@ -70,48 +73,64 @@ class ConfigService:
         self._load()
 
     @property
-    def cursor_speed(self):
+    def cursor_speed(self) -> float:
         return self._cursor_speed
 
     @property
-    def cursor_acceleration(self):
+    def cursor_acceleration(self) -> float:
         return self._cursor_acceleration
 
     @property
-    def key_press_interval(self):
+    def key_press_interval(self) -> int:
         return self._key_press_interval
 
     @property
-    def key_repeat_delay(self):
+    def key_repeat_delay(self) -> int:
         return self._key_repeat_delay
 
     @property
-    def key_repeat_interval(self):
+    def key_repeat_interval(self) -> int:
         return self._key_repeat_interval
 
     @property
-    def host(self):
+    def host(self) -> str:
         return self._host
 
     @property
-    def port(self):
+    def port(self) -> int:
         return self._port
 
     @property
-    def is_debug(self):
+    def is_debug(self) -> bool:
         return self._is_debug
 
     @property
-    def keyboard_path(self):
+    def keyboard_path(self) -> str:
         return self._keyboard_path
 
     @property
-    def mouse_path(self):
+    def mouse_path(self) -> str:
         return self._mouse_path
 
     @property
-    def media_path(self):
+    def media_path(self) -> str:
         return self._media_path
+
+    @property
+    def output_backend(self) -> str:
+        return self._output_backend
+
+    @property
+    def karabiner_helper_command(self) -> str:
+        return self._karabiner_helper_command
+
+    @property
+    def karabiner_device_hash(self) -> int:
+        return self._karabiner_device_hash
+
+    @property
+    def karabiner_allow_remote(self) -> bool:
+        return self._karabiner_allow_remote
 
     def _load(self):
         self._cursor_speed = self._prefs.get('cursor_speed', self._cursor_speed)
@@ -124,9 +143,22 @@ class ConfigService:
         self._host = self._prefs.get('host', self._host)
         self._port = self._prefs.get('port', self._port)
         self._is_debug = self._prefs.get('debug', self._is_debug)
+        self._output_backend = self._prefs.get('output_backend', self._output_backend)
         self._keyboard_path = self._prefs.get('keyboard_path', self._keyboard_path)
         self._mouse_path = self._prefs.get('mouse_path', self._mouse_path)
         self._media_path = self._prefs.get('media_path', self._media_path)
+        self._karabiner_helper_command = self._prefs.get(
+            'karabiner_helper_command', self._karabiner_helper_command
+        )
+        self._karabiner_device_hash = self._prefs.get(
+            'karabiner_device_hash', self._karabiner_device_hash
+        )
+        self._karabiner_allow_remote = self._prefs.get(
+            'karabiner_allow_remote', self._karabiner_allow_remote
+        )
+
+        if self._output_backend == 'karabiner' and self._prefs.get('host') is None:
+            self._host = '127.0.0.1'
 
         self._initialized = True
 
@@ -139,9 +171,13 @@ class ConfigService:
         self._prefs.set('host', self._host)
         self._prefs.set('port', self._port)
         self._prefs.set('debug', self._is_debug)
+        self._prefs.set('output_backend', self._output_backend)
         self._prefs.set('keyboard_path', self._keyboard_path)
         self._prefs.set('mouse_path', self._mouse_path)
         self._prefs.set('media_path', self._media_path)
+        self._prefs.set('karabiner_helper_command', self._karabiner_helper_command)
+        self._prefs.set('karabiner_device_hash', self._karabiner_device_hash)
+        self._prefs.set('karabiner_allow_remote', self._karabiner_allow_remote)
 
         self._prefs.save()
         
@@ -156,9 +192,12 @@ class ConfigService:
         self._logger.info('Cursor speed: %s', self._cursor_speed)
         self._logger.info('Cursor acceleration: %s', self._cursor_acceleration)
         self._logger.info('Key press interval: %s', self._key_press_interval)
+        self._logger.info('Output backend: %s', self._output_backend)
         self._logger.info('Keyboard path: %s', self._keyboard_path)
         self._logger.info('Mouse path: %s', self._mouse_path)
         self._logger.info('Media path: %s', self._media_path)
+        self._logger.info('Karabiner helper command: %s', self._karabiner_helper_command)
+        self._logger.info('Karabiner allow remote: %s', self._karabiner_allow_remote)
 
     def set_cursor_speed(self, speed: float):
         if not self._initialized:
@@ -238,4 +277,30 @@ class ConfigService:
 
         self._media_path = path
         
+        self._save()
+
+    def set_output_backend(self, output_backend: str):
+        if not self._initialized:
+            raise NotInitializedError('Preferences not initialized!')
+        if output_backend not in ('usb-gadget', 'karabiner'):
+            raise ValueError('Output backend must be usb-gadget or karabiner')
+
+        self._output_backend = output_backend
+
+        self._save()
+
+    def set_karabiner_helper_command(self, command: str):
+        if not self._initialized:
+            raise NotInitializedError('Preferences not initialized!')
+
+        self._karabiner_helper_command = command
+
+        self._save()
+
+    def set_karabiner_allow_remote(self, allow_remote: bool):
+        if not self._initialized:
+            raise NotInitializedError('Preferences not initialized!')
+
+        self._karabiner_allow_remote = allow_remote
+
         self._save()

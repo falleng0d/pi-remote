@@ -6,6 +6,8 @@ import grpc
 import execute
 import input_pb2_grpc
 from config_service import ConfigService
+from input_backend import KarabinerBackend
+from input_backend import UsbGadgetBackend
 from input_service import HidKeyboardService
 from input_service import HidMouseService
 from input_service import InputService
@@ -47,15 +49,28 @@ if __name__ == '__main__':
 
     config_service = ConfigService(logger=logging.getLogger(__name__))
 
+    if config_service.output_backend == 'karabiner':
+        backend = KarabinerBackend(
+            helper_command=config_service.karabiner_helper_command,
+            logger=logging.getLogger(__name__),
+            device_hash=config_service.karabiner_device_hash,
+        )
+    else:
+        backend = UsbGadgetBackend(
+            keyboard_path=config_service.keyboard_path,
+            mouse_path=config_service.mouse_path,
+            media_path=config_service.media_path,
+            logger=logging.getLogger(__name__),
+        )
+
     hid_service = HidKeyboardService(
-        keyboard_path='/dev/null',
-        media_path='/dev/null',
+        backend=backend,
         logger=logging.getLogger(__name__),
     )
 
     mouse_hid_service = HidMouseService(
         config_service=config_service,
-        mouse_path='/dev/null',
+        backend=backend,
         logger=logging.getLogger(__name__),
     )
 
@@ -65,10 +80,6 @@ if __name__ == '__main__':
         config_service=config_service,
         logger=logging.getLogger(__name__),
     )
-
-    hid_service.keyboard_path = config_service.keyboard_path
-    hid_service.media_path = config_service.media_path
-    mouse_hid_service.mouse_path = config_service.mouse_path
 
     if config_service.is_debug:
         root_logger.setLevel(logging.DEBUG)
@@ -87,7 +98,14 @@ if __name__ == '__main__':
     )
 
     host = config_service.host
-    if config_service.host == '0.0.0.0':
+    if (
+        config_service.output_backend == 'karabiner'
+        and host == '0.0.0.0'
+        and not config_service.karabiner_allow_remote
+    ):
+        logger.warning('Karabiner backend selected; binding to 127.0.0.1 instead of 0.0.0.0')
+        host = '127.0.0.1'
+    elif config_service.host == '0.0.0.0':
         host = '[::]'
 
     address = f'{host}:{config_service.port}'
@@ -101,6 +119,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info('Shutting down server')
         hid_service.unpress_all_keys()
+        backend.close()
         server.stop(0)
         thread_pool.shutdown()
         logger.info('Server stopped')

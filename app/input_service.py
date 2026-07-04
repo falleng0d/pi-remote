@@ -1,8 +1,6 @@
 import logging
-import multiprocessing
 import time
 from math import floor
-from typing import BinaryIO, Iterable
 
 import execute
 from button import Button
@@ -10,6 +8,7 @@ from button import button_to_hid
 from config_service import ConfigService
 from hid import keycodes
 from hid.keycodes import modifier_keycodes
+from input_backend import InputBackend
 from key import ButtonActionType
 from key import HotkeyOptions
 from key import Key
@@ -19,56 +18,24 @@ from key_utils import is_media_key
 from key_utils import is_modifier_key
 from key_utils import key_to_keycode
 
-_hid_lock = multiprocessing.Lock()
-
-def _write_to_hid_handle(hid_handle: BinaryIO, buffer: Iterable[int]):
-    try:
-        hid_handle.write(bytearray(buffer))
-    except BlockingIOError:
-        logging.error('Failed to write to HID interface. Is USB cable connected?')
-
-
-def _write_to_hid(hid_path: str, buffer: Iterable[int]):
-    if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
-        logging.debug(
-            'writing to HID interface %s: %s',
-            hid_path,
-            ' '.join([f'{x:#04x}' for x in buffer]),
-        )
-
-    try:
-        with _hid_lock:
-            with open(hid_path, 'ab+') as hid_handle:
-                hid_handle.write(bytearray(buffer))
-    except BlockingIOError:
-        logging.error(
-            'Failed to write to HID interface: %s. Is USB cable connected?', hid_path
-        )
-
-
-def release_all_keys(keyboard_path: str):
-    _write_to_hid(keyboard_path, [0] * 8)
-
 
 class HidKeyboardService:
     """Service for sending input events to the target machine over USB HID."""
 
-    keyboard_path: str
-    media_path: str
+    _backend: InputBackend
     _logger: logging.Logger
     _pressed_keys: tuple[int, ...]
     _active_modifiers: dict[int, bool]
     _modifiers_byte: int
 
     def _send_key_hid_state(self):
-        _write_to_hid(self.keyboard_path, (self._modifiers_byte, 0, *self._pressed_keys))
+        self._backend.send_keyboard_report(self._modifiers_byte, self._pressed_keys)
 
     def _send_media_hid_state(self, media_key: int):
-        _write_to_hid(self.media_path, (media_key, 0))
+        self._backend.send_consumer_report(media_key)
 
-    def __init__(self, keyboard_path: str, media_path: str, logger: logging.Logger):
-        self.keyboard_path = keyboard_path
-        self.media_path = media_path
+    def __init__(self, backend: InputBackend, logger: logging.Logger):
+        self._backend = backend
         self._logger = logger
         self._pressed_keys = (0, 0, 0, 0, 0, 0)
         self._modifiers_byte = 0
@@ -157,7 +124,7 @@ class HidKeyboardService:
         self.send_modifier_state(modifier, KeyActionType.UP)
 
     def unpress_all_keys(self):
-        self._pressed_keys = (0, 0, 0, 0, 0, 0, 0, 0)
+        self._pressed_keys = (0, 0, 0, 0, 0, 0)
 
         for modifier in self._active_modifiers:
             self._active_modifiers[modifier] = False
@@ -167,17 +134,8 @@ class HidKeyboardService:
         self._send_media_hid_state(0)
 
 
-def _send_mouse_event(mouse_path: str, buffer: Iterable[int]):
-    try:
-        _write_to_hid(mouse_path, buffer)
-    except (BrokenPipeError, ValueError) as e:
-        logging.info(f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}')
-        
-        raise RuntimeError(f'Failed to write mouse report {[f"{x:#04x}" for x in buffer]}') from e
-
-
 def send_mouse_event(
-    mouse_path: str,
+    backend: InputBackend,
     buttons: int,
     relative_x: float,
     relative_y: float,
@@ -187,7 +145,6 @@ def send_mouse_event(
 ) -> None:
     """Send a mouse event to the target machine over USB HID.
 
-    :param mouse_path: A bitmask representing which mouse buttons are pressed.
     :param buttons: A bitmask representing which mouse buttons are pressed.
     :param relative_x: A value representing mouse's relative y delta.
     :param relative_y: A value representing mouse's relative y delta.
@@ -200,18 +157,17 @@ def send_mouse_event(
     # pylint: disable=invalid-name
     x, y = floor(relative_x * speed * 5), floor(relative_y * speed * 5)
 
-    buf = [0] * 5
-    buf[0] = buttons  # Byte 0 = Button 1 pressed
-    buf[1] = x & 0xFF
-    buf[2] = y & 0xFF
-    buf[3] = _translate_vertical_wheel_delta(vertical_wheel_delta) & 0xFF
-    buf[4] = horizontal_wheel_delta & 0xFF
-
     # logging.info(f'Sending packet to mouse: {[f" {x:#04x}" for x in buf]}')
 
     execute.with_timeout_t(
-        _write_to_hid,
-        args=(mouse_path, buf),
+        backend.send_mouse_report,
+        args=(
+            buttons,
+            x,
+            y,
+            _translate_vertical_wheel_delta(vertical_wheel_delta),
+            horizontal_wheel_delta,
+        ),
         timeout_in_seconds=0.005,
     )
 
@@ -228,13 +184,18 @@ class HidMouseService:
     Keeps track of the state of the buttons and sends the appropriate events.
     """
 
-    mouse_path: str
+    _backend: InputBackend
     _logger: logging.Logger
     _button_state: int
     _config_service: ConfigService
 
-    def __init__(self, config_service: ConfigService, mouse_path: str, logger: logging.Logger):
-        self.mouse_path = mouse_path
+    def __init__(
+        self,
+        config_service: ConfigService,
+        backend: InputBackend,
+        logger: logging.Logger,
+    ):
+        self._backend = backend
         self._logger = logger
         self._button_state = 0
         self._config_service = config_service
@@ -250,7 +211,7 @@ class HidMouseService:
     def _write_to_hid(self):
         # Send event with current button state but no movement/scroll
         send_mouse_event(
-            self.mouse_path,
+            self._backend,
             self._button_state,  # Current button state
             0.0,  # No X movement
             0.0,  # No Y movement
@@ -281,7 +242,7 @@ class HidMouseService:
     def send_movement(self, delta_x: float, delta_y: float):
         """Send a mouse movement event."""
         send_mouse_event(
-            self.mouse_path,
+            self._backend,
             self._button_state,  # Keep current button state
             delta_x,
             delta_y,
